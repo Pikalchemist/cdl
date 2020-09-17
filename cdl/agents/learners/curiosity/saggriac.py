@@ -9,5 +9,5 @@ class SAGGLearner(InterestLearner):
         mods = [RandomMod(0.2), GoodRegionMod(0.6), GoodPointMod(0.2)] + mods
         super().__init__(environment, mods=mods, dataset=dataset, options=options, performer=performer,
                          planner=planner)
-        self.trainStrategies.append(RandomStrategy(self))
+        self.trainStrategies.add(RandomStrategy(self))
         # self.trainStrategies.append(AutonomousExploration(self))
