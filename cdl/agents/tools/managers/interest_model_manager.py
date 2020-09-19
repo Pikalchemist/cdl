@@ -42,7 +42,7 @@ class InterestModelManager(Module):
         # - costs: list containing the cost of each available strategy for the learner
         # - ## contains other options described in InterestRegion class documentation
         self.dataset = dataset
-        self.dataset.addChildModule(self)
+        # self.dataset.addChildModule(self)
         self.options = {
             'around': 0.05,
             'numberRegionSelection': 10,

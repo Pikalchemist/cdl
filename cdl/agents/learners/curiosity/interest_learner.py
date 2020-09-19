@@ -100,7 +100,7 @@ class InterestLearner(ModelLearner):
         # self.logger.debug('Mod {} selected'.format(getReference(mod)), 'STRAT')
 
         # Select task, strategy and goal outcome according to chosen mod
-        config = mod.sample(self.environment.currentContext(self.dataset))
+        config = mod.sample(self.environment.world.currentContext(self.dataset))
         config.iteration = self.iteration
         self.configHistory.append(config)
         # self.logger.debug('Strategy {} and goal {} selected: {}'
