@@ -45,7 +45,7 @@ class InterestLearner(ModelLearner):
         # options['dataset'] = dict(options.get('dataset', {}), **{'model':})
         super().__init__(environment, dataset=dataset, performer=performer,
                          planner=planner, options=options)
-        self.interestModel = InterestModelManager(self.dataset)
+        self.interestModel = InterestModelManager(self)
         self.mods = []
         for mod in mods:
             self.addMod(mod)
@@ -110,7 +110,7 @@ class InterestLearner(ModelLearner):
         # Make sure strategy chosen is available
         # while not self.strategies[strat].available(task):
         #     task, strat, goal = self.sampleStrategyGoal(mod)
-        self.logger.debug(f'Iteration {self.iteration}: {mod} chose {config}', 'STRAT')
+        self.logger.debug(f'Iteration {self.iteration}: {mod} chose {config}', tag='strat')
         return config
 
     def addEvent(self, event, config, cost=1.):

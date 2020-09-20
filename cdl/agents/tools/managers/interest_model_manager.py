@@ -30,18 +30,18 @@ from dino.utils.maths import uniformRowSampling, mixedSort
 class InterestModelManager(Module):
     """Model of interest for the intrinsic motivated learner."""
 
-    def __init__(self, dataset, options={}):
+    def __init__(self, learner, options={}):
         """
         dataset Dataset: dataset of the learner
         options dict: contain parameters of the model
         """
-        super().__init__("InterestModelManager")
+        super().__init__("InterestModelManager", learner)
         # Different keys of options
         # - numberRegionSelection: maximum number of best regions considered when choosing with intrinsic motivation
         # - around: radius of the ball used to sample around a specific point
         # - costs: list containing the cost of each available strategy for the learner
         # - ## contains other options described in InterestRegion class documentation
-        self.dataset = dataset
+        self.dataset = learner.dataset
         # self.dataset.addChildModule(self)
         self.options = {
             'around': 0.05,
@@ -69,7 +69,7 @@ class InterestModelManager(Module):
 
     def createInterestMap(self, model, strategy):
         self.logger.info(
-            f'Creating interestMap for model {model}, strategy {strategy}', 'IM')
+            f'Creating interestMap for model {model}, strategy {strategy}', tag='interest')
         mp = InterestRegion(model.outcomeSpace, self.options,
                              contextSpace=model.contextSpace, manager=self)
         model.interestMaps[strategy] = mp
@@ -330,7 +330,7 @@ class InterestRegion(SpaceRegion):
     """Implements an interest region."""
 
     def __init__(self, space, options, bounds=None, parent=None, manager=None, contextSpace=None, regions=None):
-        super().__init__(space, options, bounds=bounds, parent=parent, manager=manager, tag='IM',
+        super().__init__(space, options, bounds=bounds, parent=parent, manager=manager, tag='interest',
                          contextSpace=contextSpace, regions=regions)
 
     def computeEvaluation(self):
