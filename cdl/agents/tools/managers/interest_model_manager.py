@@ -69,7 +69,7 @@ class InterestModelManager(Module):
 
     def createInterestMap(self, model, strategy):
         self.logger.info(
-            'Creating interestMap for model {}, strategy {}'.format(model, strategy), 'IM')
+            f'Creating interestMap for model {model}, strategy {strategy}', 'IM')
         mp = InterestRegion(model.outcomeSpace, self.options,
                              contextSpace=model.contextSpace, manager=self)
         model.interestMaps[strategy] = mp
@@ -192,8 +192,7 @@ class InterestModelManager(Module):
             #self.debutSampling.append((ir[2].interest[strat], bestInterest))
             ### DEBUG END HERE
             return MoveConfig(model=model, strategy=strategy, goal=goal, goalContext=goalContext,
-                              sampling="best region in space {} with an interest of {:.4f}, random goal"
-                              .format(region.space, bestInterest))
+                              sampling=f"best region in space {region.space} with an interest of {bestInterest:.4f}, random goal")
 
     def sampleBestPoint(self, strategiesAvailable=[], context=None):
         """Sample one point around the best point in one of the best regions."""
@@ -211,8 +210,7 @@ class InterestModelManager(Module):
             #self.debutSampling.append((ir[2].interest[strat], bestInterest))
             ### DEBUG END HERE
             return MoveConfig(model=model, strategy=strategy, goal=goal, goalContext=goalContext,
-                              sampling="best region in space {} with an interest of {:.4f}"
-                              .format(region.space, bestInterest))
+                              sampling=f"best region in space {region.space} with an interest of {bestInterest:.4f}")
 
     def sampleContext(self):
         return random.uniform(0, 1) < self.options['sampleContextRatio']

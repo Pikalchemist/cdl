@@ -110,8 +110,7 @@ class InterestLearner(ModelLearner):
         # Make sure strategy chosen is available
         # while not self.strategies[strat].available(task):
         #     task, strat, goal = self.sampleStrategyGoal(mod)
-        self.logger.debug('Iteration {}: {} chose {}'.format(
-            self.iteration, mod, config), 'STRAT')
+        self.logger.debug(f'Iteration {self.iteration}: {mod} chose {config}', 'STRAT')
         return config
 
     def addEvent(self, event, config, cost=1.):

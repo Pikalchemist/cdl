@@ -28,7 +28,7 @@ class Mod(Serializable):
         raise Exception('Unimplemented')
 
     def __repr__(self):
-        return "Mod {}".format(self.__class__.name)
+        return f"Mod {self.__class__.name}"
 
 
 class RandomMod(Mod):
