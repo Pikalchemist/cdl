@@ -106,6 +106,7 @@ class InterestModelManager(Module):
                 self.createInterestMap(model, strategy)
             model.interestMaps[strategy].addPoint(
                 outcomes.extends(context), progress)
+            model.pointAdded(event, progress)
         # timethissub(15, "im addPoint")
         # timethissub(10, "im addEvent")
 
