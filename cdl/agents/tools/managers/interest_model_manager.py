@@ -8,12 +8,15 @@ import random
 import pickle
 
 from exlab.modular.module import Module
+from exlab.utils.io import parameter
 
 from dino.data.data import Data
 from dino.data.region import SpaceRegion
 
 from dino.utils.move import MoveConfig
 from dino.utils.maths import uniformRowSampling, mixedSort
+
+# from collections import namedtuple
 
 # from lems.utils.io import getVisual, save_json, save_str, load_json, load_str, save_raw, load_raw, ptstr, plotData
 # from lems.utils.serializer import Serializer
@@ -25,6 +28,8 @@ from dino.utils.maths import uniformRowSampling, mixedSort
 # from lems.data.data import SingleAction, Action, ActionList, SingleObservation, Observation, Goal, SingleData, Data, InteractionEvent
 # from lems.data.space import DataSpace, SpaceKind
 # from lems.data.region import SpaceRegion
+
+# RegionSampling = namedtuple('RegionSampling', ['region', 'model', 'strategy'])
 
 
 class InterestModelManager(Module):
@@ -70,45 +75,57 @@ class InterestModelManager(Module):
     def createInterestMap(self, model, strategy):
         self.logger.info(
             f'Creating interestMap for model {model}, strategy {strategy}', tag='interest')
-        mp = InterestRegion(model.outcomeSpace, self.options,
-                             contextSpace=model.contextSpace, manager=self)
+        mp = InterestRegion(model.outcomeSpace, self.options, contextSpace=model.contextSpace,
+                            manager=self, model=model, strategy=strategy)
         model.interestMaps[strategy] = mp
         self.maps.append(mp)
         return mp
 
     def addEvent(self, event, strategy):
-        # timethissub(10)
-        # timethissub(11)
-
+        actions = event.actions
         outcomes = event.outcomes
         context = event.context if event.context else Data()
         models = [model for model in self.dataset.models
                   if model.isCoveredByOutcomeSpaces(outcomes.space)
                   and model.isCoveredByContextSpaces(context.space)
                   and not np.all(outcomes.projection(model.outcomeSpace).npPlain() == 0)]
-        # timethissub(11, "im models")
 
-        # timethissub(12)
-        competences = [model.goalCompetence(outcomes, context) for model in models]
-        # timethissub(12, "im competence")
-        # timethissub(13)
+        # competences = [model.goalCompetence(outcomes, context) for model in models]
         self.dataset.addEvent(event)
-        # timethissub(13, "im addEvent")
-        # timethissub(14)
-        progresses = [self.computeProgress(previousCompetence, model.goalCompetence(outcomes, context))
-                      for model, previousCompetence in zip(models, competences)]
-        # timethissub(14, "im progress")
 
-        # timethissub(15)
-        for model, progress in zip(models, progresses):
-            #print(str(model) + " -> " + str(progress))
-            if strategy not in model.interestMaps:
-                self.createInterestMap(model, strategy)
-            model.interestMaps[strategy].addPoint(
-                outcomes.extends(context), progress)
-            model.pointAdded(event, progress)
-        # timethissub(15, "im addPoint")
-        # timethissub(10, "im addEvent")
+        for model in models:
+            if model.isCoveredByActionSpaces(actions.space):
+                action = actions.projection(model.actionSpace)
+            elif model.isCoveredByActionSpaces(event.primitiveActions.space):
+                action = event.primitiveActions.projection(model.actionSpace)
+            else:
+                action = outcomes.projection(model.actionSpace)
+            outcome = outcomes.projection(model.outcomeSpace)
+            # print(f'OUTCOME {outcome}')
+            contextColumns = model.contextColumns(None, outcome, context.projection(model.contextSpace))
+            # print(
+            #     f'action {action} actions {actions} model {model}')
+            predictedOutcome = model.forward(action, context=context, contextColumns=contextColumns)[0]
+            if predictedOutcome:
+                # print(f'{predictedOutcome} {outcome}')
+                # print(f'predicted {predictedOutcome.plain()} and got {outcome.plain()}')
+                distance = predictedOutcome.distanceTo(outcome) * 10. / outcome.space.maxDistance
+                # print(f'{distance}: {model}')
+
+                if strategy not in model.interestMaps:
+                    self.createInterestMap(model, strategy)
+                model.interestMaps[strategy].addPoint(
+                    outcomes.extends(context), distance)
+                model.pointAdded(event, distance)
+
+        # progresses = [self.computeProgress(previousCompetence, model.goalCompetence(outcomes, context))
+        #               for model, previousCompetence in zip(models, competences)]
+        # for model, progress in zip(models, progresses):
+        #     if strategy not in model.interestMaps:
+        #         self.createInterestMap(model, strategy)
+        #     model.interestMaps[strategy].addPoint(
+        #         outcomes.extends(context), progress)
+        #     model.pointAdded(event, progress)
 
     def computeProgress(self, from_, to):
         return (to - from_) * (max(to, from_) ** 2)
@@ -135,90 +152,84 @@ class InterestModelManager(Module):
         if not strategiesAvailable:
             models = self.modelsWithInterestMaps()
             if models:
-                strategiesAvailable = set(
-                    [strategy for model in models for strategy, _ in model.interestMaps])
-        strat = random.choice(list(strategiesAvailable))
+                strategiesAvailable = set([strategy for model in models for strategy, _ in model.interestMaps.items()])
 
-        ### DEBUG START HERE
-        #self.debutSampling.append(None)
-        ### DEBUG END HERE
-
-        return MoveConfig(strategy=strat, sampling="random space, random action")
+        strategy = random.choice(list(strategiesAvailable))
+        return MoveConfig(strategy=strategy, sampling="random space, random action")
 
     def sampleRandomPoint(self, strategiesAvailable=None, context=None):
         """Sample one point at random in the regions."""
-        models = self.modelsWithInterestMaps(
-            strategiesAvailable=strategiesAvailable)
-        if not models:
+        region, controlContext = self.sampleRandomRegion(
+            strategiesAvailable=strategiesAvailable, context=context)
+        if region is None:
             return self.sampleRandomAction(strategiesAvailable=strategiesAvailable)
 
-        model = random.choice(models)
-        maps = model.interestMaps
-        if strategiesAvailable:
-            maps = {strategy: mp for strategy,
-                    mp in maps.items() if strategy in strategiesAvailable}
-        strategy = random.choice(list(maps.keys()))
-        mp = maps[strategy]
+        # models = self.modelsWithInterestMaps(
+        #     strategiesAvailable=strategiesAvailable)
+        # if not models:
+        #     return self.sampleRandomAction(strategiesAvailable=strategiesAvailable)
 
-        if not mp.controllableContext(self.dataset):
-            sampleContext = False
-        else:
-            sampleContext = self.sampleContext()
+        # model = random.choice(models)
+        # maps = model.interestMaps
+        # if strategiesAvailable:
+        #     maps = {strategy: mp for strategy,
+        #             mp in maps.items() if strategy in strategiesAvailable}
+        # strategy = random.choice(list(maps.keys()))
+        # mp = maps[strategy]
 
-        goal, goalContext = mp.randomPoint(
-            context=context, sampleContext=sampleContext)
-        if goalContext:
-            goalContext = self.dataset.controlContext(goalContext, context)
+        # if not mp.controllableContext(self.dataset):
+        #     sampleContext = False
+        # else:
+        #     sampleContext = self.sampleContext()
 
-        ### DEBUG START HERE
-        #self.debutSampling.append(None)
-        ### DEBUG END HERE
+        # goal, goalContext = mp.randomPoint(
+        #     context=context, sampleContext=sampleContext)
+        # goalContext = self.dataset.controlContext(goalContext, context)
+    
+        goal, goalContext = region.separateContext(region.randomPoint(), controlContext)
+        goalContext = self.dataset.controlContext(goalContext, context)
 
-        return MoveConfig(model=model, strategy=strategy, goal=goal, goalContext=goalContext,
-                          sampling="Random region, Random goal")
+        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
+                          sampling="Random region, random goal")
 
     def sampleGoodPoint(self, strategiesAvailable=[], context=None):
         """Sample one point at random in one of the best regions."""
-        region, (model, strategy, bestInterest), sampleContext = self.sampleRandomRegion(
-            context=context)
+        region, controlContext = self.sampleBestRegion(
+            strategiesAvailable=strategiesAvailable, context=context)
         if region is None:
             return self.sampleRandomPoint(strategiesAvailable=strategiesAvailable)
-        else:
-            goal, goalContext = region.randomPoint(
-                context=context, sampleContext=sampleContext)
-            if goalContext:
-                goalContext = self.dataset.controlContext(goalContext, context)
 
-            ### DEBUG START HERE
-            #self.debutSampling.append((ir[2].interest[strat], bestInterest))
-            ### DEBUG END HERE
-            return MoveConfig(model=model, strategy=strategy, goal=goal, goalContext=goalContext,
-                              sampling=f"best region in space {region.space} with an interest of {bestInterest:.4f}, random goal")
+        goal, goalContext = region.separateContext(region.randomPoint(), controlContext)
+        goalContext = self.dataset.controlContext(goalContext, context)
+
+        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
+                          sampling=f"best region in space {region.space} with an interest of {region.evaluation:.4f}, random goal")
 
     def sampleBestPoint(self, strategiesAvailable=[], context=None):
         """Sample one point around the best point in one of the best regions."""
-        region, (model, strategy, bestInterest), sampleContext = self.sampleRandomRegion(
-            context=context)
+        region, controlContext = self.sampleBestRegion(
+            strategiesAvailable=strategiesAvailable, context=context)
         if region is None:
             return self.sampleRandomPoint(strategiesAvailable=strategiesAvailable)
-        else:
-            goal, goalContext = region.pointAround(
-                self.options['around'], context=context, sampleContext=sampleContext)
-            if goalContext:
-                goalContext = self.dataset.controlContext(goalContext, context)
 
-            ### DEBUG START HERE
-            #self.debutSampling.append((ir[2].interest[strat], bestInterest))
-            ### DEBUG END HERE
-            return MoveConfig(model=model, strategy=strategy, goal=goal, goalContext=goalContext,
-                              sampling=f"best region in space {region.space} with an interest of {bestInterest:.4f}")
+        goal, goalContext = region.separateContext(region.pointAround(
+            self.options['around'], context=context, controlContext=controlContext, aroundContext=False), controlContext)
+        goalContext = self.dataset.controlContext(goalContext, context)
 
-    def sampleContext(self):
-        return random.uniform(0, 1) < self.options['sampleContextRatio']
+        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
+                          sampling=f"best region in space {region.space} with an interest of {region.evaluation:.4f}, goal around best point")
 
-    def sampleRandomRegion(self, strategiesAvailable=[], context=None):
-        sampleContext = self.sampleContext()
+    def controlContext(self, bestControlledContext, samplesCurrentContext):
+        if samplesCurrentContext > bestControlledContext * 4:
+            return False
+        if bestControlledContext > samplesCurrentContext * 4:
+            return True
+        return random.uniform(0, bestControlledContext + samplesCurrentContext) < bestControlledContext
+    
+    def sampleBestRegion(self, strategiesAvailable=[], context=None):
+        return self.sampleRandomRegion(strategiesAvailable, context, best=True)
 
+    def sampleRandomRegion(self, strategiesAvailable=[], context=None, best=False):
         # List all available regions
         regions = []
         for model in self.dataset.models:
@@ -226,47 +237,69 @@ class InterestModelManager(Module):
                 if not strategiesAvailable or strategy in strategiesAvailable:
                     for region in mp.regions:
                         if region.evaluation != 0.0:
-                            regions.append(
-                                (region, (model, strategy, region.evaluation)))
+                            regions.append(region)
 
         # Check if region context may be controlled
-        if sampleContext:
-            regionsTemp = []
-            for region, infos in regions:
-                if region.controllableContext(self.dataset):
-                    regionsTemp.append((region, infos))
-            if regionsTemp:
-                regions = regionsTemp
-            else:
-                sampleContext = False
+        regionsControlledContext = []
+        for region in regions:
+            if region.controllableContext(self.dataset):
+                regionsControlledContext.append(region)
+        bestControlledContext = np.max([np.abs(region.evaluation) for region in regionsControlledContext]) if regionsControlledContext else 0
+            # if regionsTemp:
+            #     regions = regionsTemp
+            # else:
+            #     sampleContext = False
 
         # Filter by context
-        if not sampleContext and context:
-            regionsTemp = []
-            for region, infos in regions:
+        # if not sampleContext and context:
+        regionsCurrentContext = []
+        if context:
+            for region in regions:
                 if region.nearContext(context):
-                    regionsTemp.append((region, infos))
-            regions = regionsTemp
+                    regionsCurrentContext.append(region)
+        bestCurrentContext = np.max([np.abs(region.evaluation) for region in regionsCurrentContext]) if regionsCurrentContext else 0
 
-        # Compute score for each region
-        probs = []
-        for region, infos in regions:
-            # print(region)
-            probs.append(np.abs(region.evaluation))
+        if not regionsControlledContext and not regionsCurrentContext:
+            return None, False
 
-        # Sort region by score
-        ids = np.argsort(-np.array(probs)
-                         )[:self.options['numberRegionSelection']]
-        probs = np.array(probs)[ids]
-        regions = np.array(regions)[ids]
+        if best:
+            controlContext = self.controlContext(bestControlledContext, bestCurrentContext)
+            regions = regionsControlledContext if controlContext else regionsCurrentContext
 
-        if len(probs) == 0 or probs[0] == 0.:
-            return None, (None, None, 0.), sampleContext
+            probs = np.array([np.abs(region.evaluation) for region in regions])
 
-        # Pick a region with a uniform distribution with probabilities 'probs'
-        region = uniformRowSampling(regions, probs)
+            # Sort region by score
+            ids = np.argsort(-probs)[:self.options['numberRegionSelection']]
+            probs = probs[ids]
+            regions = np.array(regions)[ids]
 
-        return (region[0], region[1], sampleContext)
+            if len(probs) == 0 or probs[0] == 0.:
+                return None, False
+
+            # Pick a region with a uniform distribution with probabilities 'probs'
+            return uniformRowSampling(regions, probs), controlContext
+        else:
+            controlContext = random.uniform(0, 2) < 1
+            regions = regionsControlledContext if controlContext else regionsCurrentContext
+            if not regions:
+                return None, False
+            region = random.choice(regions)
+            return region, controlContext
+    
+    # def _regionSamplingProbs(self, samples):
+    #     # Compute score for each region
+    #     probs = np.array([np.abs(sample.region.evaluation) for sample in samples])
+
+    #     # Sort region by score
+    #     ids = np.argsort(-probs)[:self.options['numberRegionSelection']]
+    #     probs = probs[ids]
+    #     samples = np.array(samples)[ids]
+
+    #     if len(probs) == 0 or probs[0] == 0.:
+    #         return None
+
+    #     # Pick a region with a uniform distribution with probabilities 'probs'
+    #     return uniformRowSampling(samples, probs)
 
     # def sampleRandomRegion2(self):
     #     """Choose one of the best regions and its most adapted strategy."""
@@ -329,73 +362,86 @@ class InterestModelManager(Module):
 
 class InterestRegion(SpaceRegion):
     """Implements an interest region."""
+    BASE_INTEREST = 2.
 
-    def __init__(self, space, options, bounds=None, parent=None, manager=None, contextSpace=None, regions=None):
+    def __init__(self, space, options, bounds=None, parent=None, manager=None, model=None, strategy=None, contextSpace=None, regions=None):
         super().__init__(space, options, bounds=bounds, parent=parent, manager=manager, tag='interest',
                          contextSpace=contextSpace, regions=regions)
+        self._model = model
+        self._strategy = strategy
+
+    @property
+    def model(self):
+        return self.root()._model
+    
+    @property
+    def strategy(self):
+        return self.root()._strategy
 
     def computeEvaluation(self):
         """Compute evaluation of the region for given strategy."""
-        self.evaluation = (self.meanProgress(
-            self.pointValues) / self.options['cost'])
+        if len(self.pointValues) > self.options['window'] // 2:
+            self.progresses.append(self.meanProgress(self.pointValues))
+        if len(self.progresses) > self.options['window'] // 2:
+            self.evaluation = np.abs((self.progresses[-1] - self.progresses[-self.options['window'] // 2]) / self.options['cost'])
+        elif self.parent:
+            self.evaluation = 0.
+        else:
+            self.evaluation = self.BASE_INTEREST
 
     def meanProgress(self, pointValues):
         """Compute mean progress according to the evaluation window."""
-        pointValues = np.sort(pointValues[-self.options['window']:])
-        if len(pointValues) > 5:
-            pointValues = pointValues[2:-2]
+        pointValues = np.sort(pointValues[-self.options['window']//2:])
+        # if len(pointValues) > 5:
+        #     pointValues = pointValues[1:-1]
         return np.mean(pointValues)
 
     # Sample
-    def bestPoint(self, context=None, sampleContext=True, separateContext=True):
+    def bestPoint(self, context=None, controlContext=True):
         """Find point with the highest progress inside region."""
-        n = min(len(self.pointValues), self.options['window'])
-        if n == 0:
+        if not self.pointValues:
             print("Error: bestPoint should not be used for empty region.")
 
-        if context and not sampleContext:
+        if context and not controlContext:
             ids, dists = self.nearestContext(context)
             indices, _ = mixedSort(dists, -np.abs(self.pointValues)[ids])
         else:
             indices = (-np.abs(self.pointValues)).argsort()
 
-        d = self.space.asTemplate(self.points[indices[0]])
-        if not separateContext:
-            return d
-        return d.projection(self.targetSpace), None if not sampleContext else d.projection(self.contextSpace)
+        return self.space.asTemplate(self.points[indices[0]])
 
-    def pointAround(self, around=0.05, point=None, context=None, sampleContext=True, fixedContext=True, separateContext=True):
+    def pointAround(self, around=0.05, point=None, context=None, controlContext=True, aroundContext=False):
         """Sample a goal around the given point inside region and a ball."""
-        point = point if point else self.bestPoint(
-            context=context, separateContext=False)
+        point = parameter(self.bestPoint(
+            context=context, controlContext=controlContext))
         point = point.npPlain()
 
         # TODO: or maxDistance of the region?
-        around = around * self.targetSpace.maxDistance
+        around = around * self.maxDistance()
 
         # Compute a random normalized vector indicating exploration direction
         vect = np.random.uniform(-1.0, 1.0, len(point))
-        vect = vect / np.sqrt(np.sum(vect**2)) * random.uniform(0., around)
-        goal = point
-        if fixedContext:
+        vect *= random.uniform(0., around) / np.sqrt(np.sum(vect**2))
+        if aroundContext:
+            point += vect
+        else:
             cols = self.space.columnsFor(self.targetSpace)
-            goal[cols] += vect[cols]
+            point[cols] += vect[cols]
 
-        # Check if the goal is still in the evaluation region
-        for i in range(len(goal)):
-            goal[i] = max(min(goal[i], self.bounds[i][1]), self.bounds[i][0])
+        # Check if the point is still in the evaluation region
+        for i in range(len(point)):
+            point[i] = max(min(point[i], self.bounds[i][1]), self.bounds[i][0])
 
-        d = self.space.asTemplate(goal)
-        if not separateContext:
-            return d
-        return d.projection(self.targetSpace), None if not sampleContext else d.projection(self.contextSpace)
+        return self.space.asTemplate(point)
 
-    def randomPoint(self, context=None, sampleContext=True, separateContext=True):
+    def randomPoint(self):
         """Choose a random goal inside the region."""
-        bounds = self.finiteBounds()
         d = Data(self.space,
-                 [random.uniform(bmin, bmax) for bmin, bmax in bounds[:self.space.dim]])
+                 [random.uniform(bmin, bmax) for bmin, bmax in self.finiteBounds()])
 
-        if not separateContext:
-            return d
-        return d.projection(self.targetSpace), None if not sampleContext else d.projection(self.contextSpace)
+        return d
+    
+    def separateContext(self, point, controlContext=True):
+        if controlContext:
+            return point.projection(self.targetSpace), point.projection(self.contextSpace)
+        return point.projection(self.targetSpace), None
