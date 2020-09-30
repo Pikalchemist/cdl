@@ -19,3 +19,10 @@ class InterestModel(RegressionModel):
 
     def interestMap(self, index=0):
         return list(self.interestMaps.items())[index][1]
+    
+    def continueFrom(self, previousModel):
+        super().continueFrom(previousModel)
+
+        # self.interestMaps = previousModel.interestMaps
+        # previousModel.spacesHistory.extend(self.spacesHistory)
+        # self.spacesHistory = previousModel.spacesHistory

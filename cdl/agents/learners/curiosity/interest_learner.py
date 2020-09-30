@@ -27,6 +27,7 @@ from dino.agents.learners.model.model import ModelLearner
 from dino.utils.maths import uniformSampling
 
 from cdl.agents.tools.managers.interest_model_manager import InterestModelManager
+from cdl.agents.tools.managers.adaptive_model_manager import AdaptiveModelManager
 from cdl.agents.tools.models.interest_model import InterestModel
 
 
@@ -50,7 +51,8 @@ class InterestLearner(ModelLearner):
         for mod in mods:
             self.addMod(mod)
 
-        self.dynamicModels = False
+        self.adaptiveModels = True
+        self.adaptiveModelManager = None
 
         # creates semantic/metric map
         # self.semmap = Map(environment)
@@ -64,7 +66,7 @@ class InterestLearner(ModelLearner):
     def _serialize(self, serializer):
         dict_ = super()._serialize(serializer)
         dict_.update(serializer.serialize(
-            self, ['mods', 'dynamicModels'], exportPathType=True))
+            self, ['mods', 'adaptiveModels'], exportPathType=True))
         return dict_
 
     # @classmethod
@@ -115,3 +117,7 @@ class InterestLearner(ModelLearner):
 
     def addEvent(self, event, config, cost=1.):
         self.interestModel.addEvent(event, config.strategy)
+        if self.adaptiveModels:
+            if not self.adaptiveModelManager:
+                self.adaptiveModelManager = AdaptiveModelManager(self)
+            self.adaptiveModelManager.addEvent(event)

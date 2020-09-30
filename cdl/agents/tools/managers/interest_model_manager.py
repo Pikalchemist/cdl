@@ -85,7 +85,7 @@ class InterestModelManager(Module):
         actions = event.actions
         outcomes = event.outcomes
         context = event.context if event.context else Data()
-        models = [model for model in self.dataset.models
+        models = [model for model in self.dataset.enabledModels()
                   if model.isCoveredByOutcomeSpaces(outcomes.space)
                   and model.isCoveredByContextSpaces(context.space)
                   and not np.all(outcomes.projection(model.outcomeSpace).npPlain() == 0)]
@@ -143,8 +143,8 @@ class InterestModelManager(Module):
 
     def modelsWithInterestMaps(self, strategiesAvailable=None):
         if strategiesAvailable:
-            return [m for m in self.dataset.models if strategiesAvailable.intersection(set(m.interestMaps.keys()))]
-        return [m for m in self.dataset.models if m.interestMaps]
+            return [m for m in self.dataset.models if m.enabled and strategiesAvailable.intersection(set(m.interestMaps.keys()))]
+        return [m for m in self.dataset.models if m.enabled and m.interestMaps]
 
     # Samples
     def sampleRandomAction(self, strategiesAvailable=[]):
@@ -232,7 +232,7 @@ class InterestModelManager(Module):
     def sampleRandomRegion(self, strategiesAvailable=[], context=None, best=False):
         # List all available regions
         regions = []
-        for model in self.dataset.models:
+        for model in self.dataset.enabledModels():
             for strategy, mp in model.interestMaps.items():
                 if not strategiesAvailable or strategy in strategiesAvailable:
                     for region in mp.regions:
