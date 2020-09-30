@@ -5,6 +5,7 @@ from enum import Enum, auto
 from exlab.modular.module import Module
 
 from dino.data.space import SpaceKind
+from dino.utils.maths import uniformRowSampling
 
 
 class ModelMutation(Enum):
@@ -18,9 +19,9 @@ class ModelMutation(Enum):
 class AdaptiveModelManager(Module):
     MODEL_LOW_THRESHOLD = 0.4
     MODEL_LOW_PROGRESSION = 0.2
-    MODEL_LOW_PERIOD = 50
+    MODEL_LOW_PERIOD = 100
 
-    MODEL_SIMILAR_DURATION = 50
+    MODEL_SIMILAR_DURATION = 150
     MODEL_SIMILAR_THRESHOLD = 0.05
 
     EVALUATION_WINDOW = 6
@@ -197,7 +198,7 @@ class AdaptiveModelManager(Module):
             if not self.dataset.isGraphCyclic(self.dataset.dependencyGraph(list(self.dataset.enabledModels()) + [model])):
                 # self.log_model_change("Adding model : {}".format(model))
                 if model.contextSpacialization:
-                    model.contextSpacialization[0]._resetAreas()
+                    model.contextSpacialization[0].resetAreas()
                 self.logger.info(f'Adding {model} (with score {score})')
                 self.learner.dataset.registerModel(model)
 
@@ -275,34 +276,38 @@ class AdaptiveModelManager(Module):
 
     def updateModels(self, events):
         for model in self.dataset.enabledModels():
-            currentCompetence = model.competence()
-            currentPreciseCompetence = None
-
             # Try mutations on the model
             number = random.randint(2, 6)
             models = set(self.dataset.enabledModels())
             models.remove(model)
             for _ in range(number):
                 newModel, deletion = self.mutateModel(model)
-                # print(f'@@@@ Attempt {model} -> {newModel}')
+                print(f'@@@@ Attempt {model} -> {newModel}')
 
                 if not newModel:
                     continue
                 if self.dataset.isGraphCyclic(self.dataset.dependencyGraph(list(models | set([newModel])))):
                     continue
+            
+                if newModel.contextSpacialization:
+                    newModel.contextSpacialization[0].allTrue()
 
-                criterium = self.spaceDeletionCriterium if deletion else self.spaceAdditionCriterium
-                if newModel.competence() > currentCompetence + criterium:
-                    if currentPreciseCompetence is None:
-                        currentPreciseCompetence = model.competence(precise=True)
+                print(f'@@@@ => {newModel.competence()} {model.lastCompetence}')
+                if newModel.competence() > model.lastCompetence - 0.1:
                     preciseCompetence = newModel.competence(precise=True)
-                    # print(f'@@@@ => {preciseCompetence} {currentPreciseCompetence}')
-                    if preciseCompetence > currentPreciseCompetence + self.spaceAdditionCriterium:
+                    criterium = self.spaceDeletionCriterium if deletion else self.spaceAdditionCriterium
+                    print(f'@@@@ => {preciseCompetence} {model.lastCompetence}')
+                    if preciseCompetence > model.lastCompetence + criterium:
+                        if newModel.contextSpacialization:
+                            newModel.contextSpacialization[0].resetAreas()
                         self.dataset.replaceModel(model, newModel)
-                        self.logger.info(f'Modified {model} into {newModel} (for a gain of {preciseCompetence - currentPreciseCompetence})')
+                        self.logger.info(f'Modified {model} into {newModel} (for a gain of {preciseCompetence - model.lastCompetence})')
                         break  # only one modification per model per iteration
     
     def mutateModel(self, model):
+        if not model.attemptedContextSpaces:
+            model.attemptedContextSpaces = {ModelMutation.ADD_SPACE: {}, ModelMutation.CHANGE_SPACE: {}}
+
         availableMutations = [ModelMutation.ADD_SPACE]
         if model.contextSpace:
             availableMutations.append(ModelMutation.CHANGE_SPACE)
@@ -337,9 +342,18 @@ class AdaptiveModelManager(Module):
                 deletion = True
             if mutation == ModelMutation.ADD_SPACE or mutation == ModelMutation.CHANGE_SPACE:
                 for _ in range(1):
-                    space = random.choice(availableSpaces)
+                    probs = self.computeProbabilities(availableSpaces, model.attemptedContextSpaces[mutation])
+                    print(availableSpaces, probs)
+                    if random.uniform(0, 0.9) > np.max(probs):
+                        print('9999 Abort')
+                        return None, deletion
+                    space = uniformRowSampling(availableSpaces, probs)
+
                     workingSet.add(space)
                     availableSpaces.remove(space)
+
+                    model.attemptedContextSpaces[mutation][space.id] = model.attemptedContextSpaces[mutation].get(space.id, 0) + 1
+
 
             if kind == ModelMutation.CONTEXT_SPACE:
                 contextSpaceSet = workingSet
@@ -370,6 +384,9 @@ class AdaptiveModelManager(Module):
                         self.logger.info(f'Merging {model} (comp {competence} - deleted) with {other} (comp {otherCompetence})')
                         self.learner.dataset.unregisterModel(model)
                         break
+    
+    def computeProbabilities(self, spaces, attempts):
+        return [max(0.05, np.exp(-attempts.get(space.id, 0) * 0.5)) for space in spaces]
 
     # def updateModels__OLD(self, events):
     #     ids = [event.id for event in events]
