@@ -17,9 +17,9 @@ class ModelMutation(Enum):
 
 
 class AdaptiveModelManager(Module):
-    MODEL_LOW_THRESHOLD = 0.4
+    MODEL_LOW_THRESHOLD = 0.5
     MODEL_LOW_PROGRESSION = 0.2
-    MODEL_LOW_PERIOD = 100
+    MODEL_LOW_PERIOD = 120
 
     MODEL_SIMILAR_DURATION = 150
     MODEL_SIMILAR_THRESHOLD = 0.05
@@ -38,7 +38,7 @@ class AdaptiveModelManager(Module):
         self.spaceDeletionCriterium = 0.01
 
         self.iterationStart = 10
-        self.stackEvents = 50
+        self.stackEvents = 25
         self.eventStacked = []
 
     def addEvent(self, event):
@@ -96,6 +96,9 @@ class AdaptiveModelManager(Module):
         self.variatingOutcomeSpaces = variatingSpaces
         self.learnableOutcomeSpaces = [space for space in variatingSpaces if space.learnable]
 
+        print('--------')
+        print(f'ACTIONS: {self.actionSpaces} {self.dataset.models}')
+
         self.variatingContextSpaces = [space.convertTo(kind=SpaceKind.PRE) for space in variatingSpaces]
 
     def createModels(self, events):
@@ -124,7 +127,7 @@ class AdaptiveModelManager(Module):
             # print('possibleSingleContextSpaces {}'.format(possibleSingleContextSpaces))
 
             model = None
-            for j in range(5):
+            for j in range(10):
                 if model is None or not model.contextSpace:
                     # Random selection
                     actionSpace = random.choice(list(possibleSingleActionSpaces))
@@ -216,10 +219,7 @@ class AdaptiveModelManager(Module):
             if not evaluation > self.MODEL_LOW_THRESHOLD:
                 return
 
-        if model.enabled:
-            competence = model.lastCompetence
-        else:
-            competence = model.competence(precise=precise)
+        competence = model.competence(precise=precise)
 
         # Compare to other similar models (same action and outcome spaces)
         if model.enabled:
@@ -227,9 +227,10 @@ class AdaptiveModelManager(Module):
                 similarModels = [m for m in self.dataset.enabledModels() if m.matches(
                     model, ignoreContext=True) and m != model and m.duration > self.MODEL_SIMILAR_DURATION]
 
-                similarCompetences = [m.lastCompetence for m in similarModels]
+                similarCompetences = [m.competence(precise=True) for m in similarModels]
                 if similarCompetences and max(similarCompetences) - competence > self.MODEL_SIMILAR_THRESHOLD:
                     model.enabled = False
+                    self.logger.info(f'Disabling {model} due to better existing models ({similarModels})')
 
         # Competence and progress
         model.evaluations[self.learner.iteration] = competence
@@ -259,7 +260,7 @@ class AdaptiveModelManager(Module):
                 #       model.lowCompetenceSince > self.MODEL_LOW_PERIOD)
                 if model.lowCompetenceSince >= 0 and self.learner.iteration - model.lowCompetenceSince > self.MODEL_LOW_PERIOD:
                     model.enabled = False
-                    self.logger.info(f'Disabling {model}')
+                    self.logger.info(f'Disabling {model} due to low competence')
                 if model.lowCompetenceSince == -1:
                     model.lowCompetenceSince = self.learner.iteration
             else:
@@ -276,12 +277,19 @@ class AdaptiveModelManager(Module):
 
     def updateModels(self, events):
         for model in self.dataset.enabledModels():
+            if model not in self.dataset.enabledModels():
+                continue
             # Try mutations on the model
             number = random.randint(2, 6)
             models = set(self.dataset.enabledModels())
             models.remove(model)
+            testedModels = []
             for _ in range(number):
-                newModel, deletion = self.mutateModel(model)
+                for _ in range(20):
+                    newModel, deletion = self.mutateModel(model)
+                    if not [True for m in testedModels if m.matches(newModel)]:
+                        break
+                    print(f'@@@@ Already tested {newModel}')
                 print(f'@@@@ Attempt {model} -> {newModel}')
 
                 if not newModel:
@@ -292,25 +300,41 @@ class AdaptiveModelManager(Module):
                 if newModel.contextSpacialization:
                     newModel.contextSpacialization[0].allTrue()
 
-                print(f'@@@@ => {newModel.competence()} {model.lastCompetence}')
-                if newModel.competence() > model.lastCompetence - 0.1:
+                print(f'@@@@ => {newModel.competence()} {model.competence(precise=True)}')
+                if newModel.competence() > model.competence(precise=True) - 0.1:
                     preciseCompetence = newModel.competence(precise=True)
                     criterium = self.spaceDeletionCriterium if deletion else self.spaceAdditionCriterium
-                    print(f'@@@@ => {preciseCompetence} {model.lastCompetence}')
-                    if preciseCompetence > model.lastCompetence + criterium:
+                    print(f'@@@@ => {preciseCompetence} {model.competence(precise=True)}')
+                    if preciseCompetence > model.competence(precise=True) + criterium:
                         if newModel.contextSpacialization:
                             newModel.contextSpacialization[0].resetAreas()
-                        self.dataset.replaceModel(model, newModel)
-                        self.logger.info(f'Modified {model} into {newModel} (for a gain of {preciseCompetence - model.lastCompetence})')
+
+                        # Checking for already existing matching models
+                        similarModels = [m for m in self.dataset.enabledModels() if m.matches(newModel)]
+                        similarCompetences = [m.competence(precise=True) for m in similarModels]
+                        if similarCompetences:
+                            if max(similarCompetences) > newModel.competence():
+                                model.enabled = False
+                                self.logger.info(f'Merged {newModel} into {similarModels}')
+                            else:
+                                for m in similarModels:
+                                    m.enabled = False
+                                self.dataset.replaceModel(model, newModel)
+                                self.logger.info(f'Modified {model} into {newModel}, merging {similarModels} due to a lower competence)')
+                        else:
+                            self.dataset.replaceModel(model, newModel)
+                            self.logger.info(f'Modified {model} into {newModel} (for a gain of {preciseCompetence - model.competence(precise=True)})')
                         break  # only one modification per model per iteration
     
     def mutateModel(self, model):
         if not model.attemptedContextSpaces:
-            model.attemptedContextSpaces = {ModelMutation.ADD_SPACE: {}, ModelMutation.CHANGE_SPACE: {}}
+            model.attemptedContextSpaces = {ModelMutation.ADD_SPACE.value: {},
+                                            ModelMutation.CHANGE_SPACE.value: {},
+                                            ModelMutation.DELETE_SPACE.value: {}}
 
         availableMutations = [ModelMutation.ADD_SPACE]
         if model.contextSpace:
-            availableMutations.append(ModelMutation.CHANGE_SPACE)
+            availableMutations += [ModelMutation.DELETE_SPACE, ModelMutation.CHANGE_SPACE]
 
         mutation = random.choice(availableMutations)
         newModel = None
@@ -337,13 +361,26 @@ class AdaptiveModelManager(Module):
 
             if mutation == ModelMutation.DELETE_SPACE or mutation == ModelMutation.CHANGE_SPACE:
                 for _ in range(1):
+                    probs = self.computeProbabilities(list(workingSet), model.attemptedContextSpaces[mutation.value])
+                    if mutation == ModelMutation.CHANGE_SPACE:
+                        probs = np.ones(len(workingSet))
+                    if random.uniform(0, 0.9) > np.max(probs):
+                        print('9999 Abort')
+                        return None, deletion
+
                     space = random.choice(list(workingSet))
                     workingSet.remove(space)
+
+                    model.attemptedContextSpaces[mutation.value][space.id] = model.attemptedContextSpaces[mutation.value].get(
+                        space.id, 0) + 1
                 deletion = True
             if mutation == ModelMutation.ADD_SPACE or mutation == ModelMutation.CHANGE_SPACE:
                 for _ in range(1):
-                    probs = self.computeProbabilities(availableSpaces, model.attemptedContextSpaces[mutation])
+                    probs = self.computeProbabilities(availableSpaces, model.attemptedContextSpaces[mutation.value])
+                    print('/////////')
                     print(availableSpaces, probs)
+                    if mutation == ModelMutation.CHANGE_SPACE:
+                        probs = np.ones(len(availableSpaces))
                     if random.uniform(0, 0.9) > np.max(probs):
                         print('9999 Abort')
                         return None, deletion
@@ -352,7 +389,8 @@ class AdaptiveModelManager(Module):
                     workingSet.add(space)
                     availableSpaces.remove(space)
 
-                    model.attemptedContextSpaces[mutation][space.id] = model.attemptedContextSpaces[mutation].get(space.id, 0) + 1
+                    model.attemptedContextSpaces[mutation.value][space.id] = model.attemptedContextSpaces[mutation.value].get(
+                        space.id, 0) + 1
 
 
             if kind == ModelMutation.CONTEXT_SPACE:
@@ -385,7 +423,7 @@ class AdaptiveModelManager(Module):
                         self.learner.dataset.unregisterModel(model)
                         break
     
-    def computeProbabilities(self, spaces, attempts):
+    def computeProbabilities(self, spaces, attempts, but=[]):
         return [max(0.05, np.exp(-attempts.get(space.id, 0) * 0.5)) for space in spaces]
 
     # def updateModels__OLD(self, events):
