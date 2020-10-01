@@ -3,9 +3,9 @@ from dino.agents.tools.models.regression import RegressionModel
 
 class InterestModel(RegressionModel):
     def __init__(self, dataset, actionSpace, outcomeSpace, contextSpace=[], restrictionIds=None, model=None,
-                 register=True):
+                 register=True, metaData={}):
         super().__init__(dataset, actionSpace, outcomeSpace, contextSpace,
-                         restrictionIds, model, register)
+                         restrictionIds, model, register, metaData)
 
         self.interestMaps = {}
         # if model:
