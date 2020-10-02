@@ -15,6 +15,10 @@ from dino.data.space import SpaceKind
 
 
 class Affordance(InterestModel):
+    COMPETENCE_MARGIN = 0.05
+    COMPETENCE_MIN = 0.2
+    MIN_NON_ZERO = 0.001
+
     def __init__(self, dataset, actionSpace, outcomeSpace, contextSpace=[],
                  restrictionIds=None, model=None, register=True, metaData={}):
 
@@ -32,6 +36,10 @@ class Affordance(InterestModel):
         if contextSpace:
             self.abstractContextSpace.abstractSpace(
                 contextSpace, abstractNewElements=False, appendToChildren=True)
+        
+        if metaData:
+            for assignable in metaData.get('assignables', []):
+                self.addAssignable(assignable)
 
         # self.assignables = []
         # self.nonAssignables = []
@@ -53,9 +61,22 @@ class Affordance(InterestModel):
     # @classmethod
     # def createFromOther(cls, affordance, restrictionIds=None, register=True):
     #     return cls(affordance.dataset, )
+
+    @classmethod
+    def adaptiveEpisode(cls, adaptiveModelManager, events):
+        print('HEYHEYHEYHEY')
+        ids = [event.iteration for event in events]
+        for affordance in adaptiveModelManager.dataset.enabledModels():
+            entities = affordance.interactedEntities(events)
+            if entities:
+                affordance.testMatchingEntities(entities, ids=ids)
+    
+    def justCreated(self):
+        print('CREATED!!!')
+        self.testMatchingEntities()
     
     def metaData(self):
-        return {}
+        return {'assignables': self.assignables()}
     
     @property
     def semanticMap(self):
@@ -76,26 +97,121 @@ class Affordance(InterestModel):
 
         self.invalidateCompetences()
     
-    def mainEntity(self):
+    def mainAbstractEntity(self):
         entities = self.abstractOutcomeSpace.abstractedEntities()
         assert(entities == 1, 'Only 1 abstract entity may exist for the outcome space!')
         return list(entities)[0]
 
+    def addAssignable(self, entity):
+        self.mainAbstractEntity().assignable(entity)
+        self.updateSpaces()
+
+    def removeAssignable(self, entity):
+        self.mainAbstractEntity().unassignable(entity)
+        self.updateSpaces()
+
+    def assignables(self):
+        self.mainAbstractEntity().assignables
+
     def requiredProperties(self):
-        return self.amt.abstractedEntityProperties().get(self.mainEntity(), set())
+        return self.amt.abstractedEntityProperties().get(self.mainAbstractEntity(), set())
 
     def compatibleEntity(self, entity):
-        print(self.requiredProperties())
-        print(entity.properties())
         for required in self.requiredProperties():
             if not entity.property(required.name()):
                 return False
         return True
-    
-    def addAssignable(self, entity):
-        self.mainEntity().assignable(entity)
-        self.updateSpaces()
 
+    def compatibleEntities(self, excludeAlreadyIncluded=True):
+        return [entity for entity in self.dataset.learner.environement.world.cascadingChildren()
+                if (not excludeAlreadyIncluded or entity not in self.assignables()) and self.compatibleEntity(entity)]
+
+    def competenceForEntity(self, entity, ids=None, precise=True):
+        assert(self.compatibleEntity(entity), f'{entity} is not compatible! (missing required properties)')
+
+        abstractEntity = self.mainAbstractEntity()
+        with abstractEntity.assign(entity):
+            actionSpace = self.abstractActionSpace.get(self.dataset)
+            outcomeSpace = self.abstractOutcomeSpace.get(self.dataset)
+            contextSpace = self.abstractContextSpace.get(self.dataset)
+            ids = self.findSharedIds(actionSpace, outcomeSpace, contextSpace, restrictionIds=ids)
+            c = self.competenceData(actionSpace.getPoint(ids, toSpace=self.actionSpace),
+                                    outcomeSpace.getPoint(ids, toSpace=self.outcomeSpace),
+                                    contextSpace.getPoint(ids, toSpace=self.contextSpace), precise=precise)
+
+        return c
+    
+    def testMatchingEntities(self, entities=None):
+        if not entities:
+            entities = self.compatibleEntities()
+
+        left = list(entities)
+        for entity in entities:
+            left.remove(entity)
+            newAffordance = self.testMatchingEntity(entity)
+            if newAffordance != self:
+                return newAffordance.testMatchingEntities(left)
+
+        return self
+
+    def testMatchingEntity(self, entity, ids=None):
+        if self.tryAddingEntity(entity, ids=ids):
+            return self
+        
+        # Try modifying context to match entity
+        if not self.dataset.learner.adaptiveModelManager:
+            return self
+
+        def externalCriterium(newAffordance):
+            if newAffordance.tryAddingEntity(entity, ids=ids, resetAfter=False):
+                return -self.COMPETENCE_MARGIN
+            return 1
+
+        return self.dataset.learner.adaptiveModelManager.updateModel(self, externalCriterium=externalCriterium)
+
+    def tryAddingEntity(self, entity, ids=None, resetAfter=True):
+        if entity in self.assignables():
+            return True
+
+        ce = self.competenceForEntity(entity, precise=True, ids=ids)
+        if ce < self.COMPETENCE_MIN:
+            return False
+
+        c = self.competence(precise=True)
+
+        if ce < c - self.COMPETENCE_MARGIN:
+            return False
+        
+        if ids is not None:
+            ce = self.competenceForEntity(entity, precise=True)
+            if ce < c - self.COMPETENCE_MARGIN:
+                return False
+
+        self.addAssignable(entity)
+    
+        nc = self.competence(precise=True)
+        if nc < c - self.COMPETENCE_MARGIN:
+            if resetAfter:
+                self.removeAssignable(entity)
+            return False
+        
+        return True
+    
+    def interactedEntities(self, events):
+        entities = []
+
+        for entity in self.compatibleEntities():
+            with self.mainAbstractEntity().assign(entity):
+                outcomeSpace = self.abstractOutcomeSpace.get(self.dataset)
+            for event in events:
+                d = event.outcomes.projection(outcomeSpace)
+                if d and d.norm1() > self.MIN_NON_ZERO:
+                    entities.append(entity)
+                    break
+
+        return entities
+
+            
 
 # class VisualClassifier(nn.Module):
 #     def __init__(self, visualSpace):

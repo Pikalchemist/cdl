@@ -52,6 +52,8 @@ class AdaptiveModelManager(Module):
             #actionSpaces = set([aspace for event in events for aspace in event.actions.get_space().iterate()])
             self.analyseEvents(self.eventStacked)
 
+            self.dataset.modelClass.adaptiveEpisode(self, self.eventStacked)
+
             self.evaluateModels(self.eventStacked)
 
             self.createModels(self.eventStacked)
@@ -204,6 +206,7 @@ class AdaptiveModelManager(Module):
                     model.contextSpacialization[0].resetAreas()
                 self.logger.info(f'Adding {model} (with score {score})')
                 self.learner.dataset.registerModel(model)
+                model.justCreated()
 
     def evaluateModels(self, events):
         for model in self.dataset.enabledModels():
@@ -280,51 +283,63 @@ class AdaptiveModelManager(Module):
             if model not in self.dataset.enabledModels():
                 continue
             # Try mutations on the model
-            number = random.randint(2, 6)
-            models = set(self.dataset.enabledModels())
-            models.remove(model)
-            testedModels = []
-            for _ in range(number):
-                for _ in range(20):
-                    newModel, deletion = self.mutateModel(model)
-                    if not [True for m in testedModels if m.matches(newModel)]:
-                        break
-                    print(f'@@@@ Already tested {newModel}')
-                print(f'@@@@ Attempt {model} -> {newModel}')
+            self.updateModel(model)
+    
+    def updateModel(self, model, externalCriterium=None):
+        number = random.randint(2, 6)
+        # models = set(self.dataset.enabledModels())
+        # models.remove(model)
+        testedModels = []
+        for _ in range(number):
+            for _ in range(20):
+                newModel, deletion = self.mutateModel(model)
+                if not [True for m in testedModels if m.matches(newModel)]:
+                    break
+                print(f'@@@@ Already tested {newModel}')
+            print(f'@@@@ Attempt {model} -> {newModel}')
 
-                if not newModel:
-                    continue
-                if self.dataset.isGraphCyclic(self.dataset.dependencyGraph(list(models | set([newModel])))):
-                    continue
-            
-                if newModel.contextSpacialization:
-                    newModel.contextSpacialization[0].allTrue()
+            if not newModel:
+                continue
+            # if self.dataset.isGraphCyclic(self.dataset.dependencyGraph(list(models | set([newModel])))):
+            #     continue
+        
+            if newModel.contextSpacialization:
+                newModel.contextSpacialization[0].allTrue()
 
-                print(f'@@@@ => {newModel.competence()} {model.competence(precise=True)}')
-                if newModel.competence() > model.competence(precise=True) - 0.1:
-                    preciseCompetence = newModel.competence(precise=True)
-                    criterium = self.spaceDeletionCriterium if deletion else self.spaceAdditionCriterium
-                    print(f'@@@@ => {preciseCompetence} {model.competence(precise=True)}')
-                    if preciseCompetence > model.competence(precise=True) + criterium:
-                        if newModel.contextSpacialization:
-                            newModel.contextSpacialization[0].resetAreas()
+            print(f'@@@@ => {newModel.competence()} {model.competence(precise=True)}')
+            if newModel.competence() > model.competence(precise=True) - 0.2:
+                criterium = self.spaceDeletionCriterium if deletion else self.spaceAdditionCriterium
 
-                        # Checking for already existing matching models
-                        similarModels = [m for m in self.dataset.enabledModels() if m.matches(newModel)]
-                        similarCompetences = [m.competence(precise=True) for m in similarModels]
-                        if similarCompetences:
-                            if max(similarCompetences) > newModel.competence():
-                                model.enabled = False
-                                self.logger.info(f'Merged {newModel} into {similarModels}')
-                            else:
-                                for m in similarModels:
-                                    m.enabled = False
-                                self.dataset.replaceModel(model, newModel)
-                                self.logger.info(f'Modified {model} into {newModel}, merging {similarModels} due to a lower competence)')
+                if externalCriterium:
+                    criterium += externalCriterium(newModel)
+
+                preciseCompetence = newModel.competence(precise=True)
+                print(f'@@@@ => {preciseCompetence} {model.competence(precise=True)}')
+                if preciseCompetence > model.competence(precise=True) + criterium:
+                    # NewModel is interesting
+                    if newModel.contextSpacialization:
+                        newModel.contextSpacialization[0].resetAreas()
+
+                    # Checking for already existing matching models
+                    similarModels = [m for m in self.dataset.enabledModels() if m.matches(newModel)]
+                    similarCompetences = [m.competence(precise=True) for m in similarModels]
+                    if similarCompetences:
+                        if max(similarCompetences) > newModel.competence():
+                            model.enabled = False
+                            self.logger.info(f'Merged {newModel} into {similarModels}')
+                            return similarModels[np.argmax(similarCompetences)]
                         else:
+                            for m in similarModels:
+                                m.enabled = False
                             self.dataset.replaceModel(model, newModel)
-                            self.logger.info(f'Modified {model} into {newModel} (for a gain of {preciseCompetence - model.competence(precise=True)})')
-                        break  # only one modification per model per iteration
+                            self.logger.info(f'Modified {model} into {newModel}, merging {similarModels} due to a lower competence)')
+                            return newModel
+                    else:
+                        # Replacing model by newModel
+                        self.dataset.replaceModel(model, newModel)
+                        self.logger.info(f'Modified {model} into {newModel} (for a gain of {preciseCompetence - model.competence(precise=True)})')
+                        return newModel
+        return model
     
     def mutateModel(self, model):
         if not model.attemptedContextSpaces:
@@ -400,6 +415,7 @@ class AdaptiveModelManager(Module):
                                            list(actionSpaceSet),
                                            list(outcomeSpaceSet),
                                            list(contextSpaceSet),
+                                           metaData=model.metaData(),
                                            register=False)
         return newModel, deletion
 
