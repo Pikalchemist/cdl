@@ -155,7 +155,7 @@ class AdaptiveModelManager(Module):
                 if [True for m in testedModels if m.matches(model)]:
                     continue
                 testedModels.append(model)
-                if [True for m in self.dataset.models if m.matches(model)]:
+                if [True for m in self.dataset.models if m.includes(model)]:
                     continue
             
                 if self.dataset.isGraphCyclic(self.dataset.dependencyGraph(list(self.dataset.enabledModels()) + [model])):
@@ -168,7 +168,7 @@ class AdaptiveModelManager(Module):
                 # favors no context models
                 score = competence + 0.02 * (len(contextSpace) == 0)
         
-                if [True for m in self.dataset.models if m.matches(model, ignoreContext=True) and competence < m.competence(precise=True) + 0.05]:
+                if [True for m in self.dataset.models if m.includes(model, ignoreContext=True) and competence < m.competence(precise=True) + 0.05]:
                     # print(f'//// failed for {model}')
                     continue
                 # Checks that the new model does not introduce a cycle in the model dependency graph
@@ -227,7 +227,7 @@ class AdaptiveModelManager(Module):
         # Compare to other similar models (same action and outcome spaces)
         if model.enabled:
             if model.duration > self.MODEL_SIMILAR_DURATION:
-                similarModels = [m for m in self.dataset.enabledModels() if m.matches(
+                similarModels = [m for m in self.dataset.enabledModels() if m.includes(
                     model, ignoreContext=True) and m != model and m.duration > self.MODEL_SIMILAR_DURATION]
 
                 similarCompetences = [m.competence(precise=True) for m in similarModels]
@@ -321,7 +321,7 @@ class AdaptiveModelManager(Module):
                         newModel.contextSpacialization[0].resetAreas()
 
                     # Checking for already existing matching models
-                    similarModels = [m for m in self.dataset.enabledModels() if m.matches(newModel)]
+                    similarModels = [m for m in self.dataset.enabledModels() if m.includes(newModel)]
                     similarCompetences = [m.competence(precise=True) for m in similarModels]
                     if similarCompetences:
                         if max(similarCompetences) > newModel.competence():

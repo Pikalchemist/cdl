@@ -1,12 +1,16 @@
-from collections import deque
 import random
 import numpy as np
+
+from contextlib import contextmanager
+from collections import deque
 
 # import torch
 # import torch.nn as nn
 # import torch.nn.functional as F
 # import torch.optim as optim
 # from torch.autograd import Variable
+
+from sklearn.neural_network import MLPClassifier
 
 from .interest_model import InterestModel
 
@@ -57,6 +61,9 @@ class Affordance(InterestModel):
                          register, metaData)
 
         # Visual classifier
+        self.visualPredictor = VisualClassifier()
+        for entity in self.assignables():
+            self.addVisualSample(entity, True)
 
     # @classmethod
     # def createFromOther(cls, affordance, restrictionIds=None, register=True):
@@ -73,7 +80,7 @@ class Affordance(InterestModel):
     
     def justCreated(self):
         print('CREATED!!!')
-        self.testMatchingEntities()
+        # self.testMatchingEntities()
     
     def metaData(self):
         return {'assignables': self.assignables()}
@@ -111,7 +118,7 @@ class Affordance(InterestModel):
         self.updateSpaces()
 
     def assignables(self):
-        self.mainAbstractEntity().assignables
+        return self.mainAbstractEntity().assignables
 
     def requiredProperties(self):
         return self.amt.abstractedEntityProperties().get(self.mainAbstractEntity(), set())
@@ -122,28 +129,36 @@ class Affordance(InterestModel):
                 return False
         return True
 
-    def compatibleEntities(self, excludeAlreadyIncluded=True):
-        return [entity for entity in self.dataset.learner.environement.world.cascadingChildren()
+    def compatibleEntities(self, excludeAlreadyIncluded=False):
+        return [entity for entity in self.dataset.learner.environment.world.cascadingChildren()
                 if (not excludeAlreadyIncluded or entity not in self.assignables()) and self.compatibleEntity(entity)]
+    
+    def applicableEntity(self, entity):
+        return self.visualPredictor.predict(entity.observeVisualProperties())
+
+    def applicableEntities(self):
+        return [entity for entity in self.compatibleEntities() if self.applicableEntity(entity)]
+    
+    def addVisualSample(self, entity, applicable):
+        self.visualPredictor.addSample(entity.observeVisualProperties(), applicable)
 
     def competenceForEntity(self, entity, ids=None, precise=True):
         assert(self.compatibleEntity(entity), f'{entity} is not compatible! (missing required properties)')
 
-        abstractEntity = self.mainAbstractEntity()
-        with abstractEntity.assign(entity):
+        with self.mainAbstractEntity().assign(entity):
             actionSpace = self.abstractActionSpace.get(self.dataset)
             outcomeSpace = self.abstractOutcomeSpace.get(self.dataset)
             contextSpace = self.abstractContextSpace.get(self.dataset)
-            ids = self.findSharedIds(actionSpace, outcomeSpace, contextSpace, restrictionIds=ids)
-            c = self.competenceData(actionSpace.getPoint(ids, toSpace=self.actionSpace),
-                                    outcomeSpace.getPoint(ids, toSpace=self.outcomeSpace),
-                                    contextSpace.getPoint(ids, toSpace=self.contextSpace), precise=precise)
+        ids = self.findSharedIds(actionSpace, outcomeSpace, contextSpace, restrictionIds=ids)
+        c = self.competenceData(actionSpace.getPoint(ids, toSpace=self.actionSpace),
+                                outcomeSpace.getPoint(ids, toSpace=self.outcomeSpace),
+                                contextSpace.getPoint(ids, toSpace=self.contextSpace), precise=precise)
 
         return c
     
     def testMatchingEntities(self, entities=None):
         if not entities:
-            entities = self.compatibleEntities()
+            entities = self.compatibleEntities(excludeAlreadyIncluded=True)
 
         left = list(entities)
         for entity in entities:
@@ -170,6 +185,11 @@ class Affordance(InterestModel):
         return self.dataset.learner.adaptiveModelManager.updateModel(self, externalCriterium=externalCriterium)
 
     def tryAddingEntity(self, entity, ids=None, resetAfter=True):
+        success = self._tryAddingEntityWithoutAddingSample(entity, ids=ids, resetAfter=resetAfter)
+        self.addVisualSample(entity, success)
+        return success
+    
+    def _tryAddingEntityWithoutAddingSample(self, entity, ids=None, resetAfter=True):
         if entity in self.assignables():
             return True
 
@@ -211,7 +231,58 @@ class Affordance(InterestModel):
 
         return entities
 
-            
+    @contextmanager
+    def allowEntity(self, entity):
+        try:
+            with self.mainAbstractEntity().assign(entity):
+                actionSpace = self.abstractActionSpace.get(self.dataset)
+                outcomeSpace = self.abstractOutcomeSpace.get(self.dataset)
+                contextSpace = self.abstractContextSpace.get(self.dataset)
+
+                self.actionSpace.allowedSimilarRows = [actionSpace]
+                self.outcomeSpace.allowedSimilarRows = [outcomeSpace]
+                self.contextSpace.allowedSimilarRows = [contextSpace]
+            yield self
+        finally:
+            self.actionSpace.allowedSimilarRows = []
+            self.outcomeSpace.allowedSimilarRows = []
+            self.contextSpace.allowedSimilarRows = []
+    
+    def forward(self, action, context=None, contextColumns=None, ignoreFirst=False, entity=None):
+        if not entity:
+            return super().forward(action, context, contextColumns=contextColumns, ignoreFirst=ignoreFirst, entity=entity)
+        with self.allowEntity(entity):
+            if context:
+                context = context.projection(self.contextSpace, entity=entity)
+            return super().forward(action, context, contextColumns=contextColumns, ignoreFirst=ignoreFirst, entity=entity)
+    
+    def inverse(self, goal, context=None, adaptContext=False, contextColumns=None, entity=None):
+        if not entity:
+            return super().inverse(goal, context, adaptContext=adaptContext, contextColumns=contextColumns, entity=entity)
+        with self.allowEntity(entity):
+            if context:
+                context = context.projection(self.contextSpace, entity=entity)
+            return super().inverse(goal, context, adaptContext=adaptContext, contextColumns=contextColumns, entity=entity)
+
+
+class VisualClassifier(object):
+    def __init__(self):
+        self.model = MLPClassifier(random_state=1, max_iter=300)
+
+        self.data = []
+        self.applicable = []
+
+    def addSample(self, data, applicable):
+        self.data.append(data)
+        self.applicable.append(applicable)
+        self.train()
+
+    def train(self):
+        self.model.fit(np.array(self.data), np.array(self.applicable))
+
+    def predict(self, visualValues):
+        return self.model.predict(np.array([visualValues]))[0]
+
 
 # class VisualClassifier(nn.Module):
 #     def __init__(self, visualSpace):
