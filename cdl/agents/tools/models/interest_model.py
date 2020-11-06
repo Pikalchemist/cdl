@@ -26,3 +26,31 @@ class InterestModel(RegressionModel):
         # self.interestMaps = previousModel.interestMaps
         # previousModel.spacesHistory.extend(self.spacesHistory)
         # self.spacesHistory = previousModel.spacesHistory
+    
+    def _serialize(self, serializer):
+        dict_ = super()._serialize(serializer)
+        dict_.update(serializer.serialize(self, ['interestMaps']))
+        return dict_
+
+    # @classmethod
+    # def _deserialize(cls, dict_, serializer, obj=None):
+    #     if obj is None:
+    #         spaces = [serializer.deserialize(spaceData)
+    #                   for spaceData in dict_.get('spaces', [])]
+    #         obj = serializer.deserialize(
+    #             dict_.get('spaceManager')).multiColSpace(spaces)
+
+    #     # Operations
+    #     # for spaceData in dict_.get('spaces', []):
+    #     #     # existing = [s for s in obj.spaces]
+    #     #     space = serializer.deserialize(spaceData)
+
+    #     return super()._deserialize(dict_, serializer, obj)
+
+    def _postDeserialize(self, dict_, serializer):
+        super()._postDeserialize(dict_, serializer)
+        for strategyName, imData in dict_.get('interestMaps', {}).items():
+            strategy = serializer.get(strategyName)
+            im = serializer.get('agent').interestModel.createInterestMap(self, strategy)
+            serializer.deserialize(imData, obj=im)
+

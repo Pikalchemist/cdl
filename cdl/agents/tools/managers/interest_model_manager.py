@@ -61,16 +61,17 @@ class InterestModelManager(Module):
 
     def __repr__(self):
         return "InterestModelManager -> " + str(self.maps)
-
+    
     def _serialize(self, serializer):
         dict_ = super()._serialize(serializer)
         dict_.update(serializer.serialize(self, ['options']))
         return dict_
 
-    # @classmethod
-    # def _deserialize(cls, dict_, dataset, loadResults=True, options={}, obj=None):
-    #     obj = cls(dataset, dict_.get('options', {}))
-    #     return obj
+    @classmethod
+    def _deserialize(cls, dict_, serializer, obj=None):
+        if obj is None:
+            obs = cls(serializer.get('agent'), dict_.get('options', {}))
+        return super()._deserialize(dict_, serializer, obj)
 
     def createInterestMap(self, model, strategy):
         self.logger.info(
