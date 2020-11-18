@@ -365,7 +365,7 @@ class InterestRegion(SpaceRegion):
     """Implements an interest region."""
     BASE_INTEREST = 2.
 
-    def __init__(self, space, options, bounds=None, parent=None, manager=None, model=None, strategy=None, contextSpace=None, regions=None):
+    def __init__(self, space, options, bounds=None, parent=None, manager=None, model=None, strategy=None, contextSpace=None, regions=None, tag=None):
         super().__init__(space, options, bounds=bounds, parent=parent, manager=manager, tag='interest',
                          contextSpace=contextSpace, regions=regions)
         self._model = model
