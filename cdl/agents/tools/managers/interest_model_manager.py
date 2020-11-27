@@ -70,7 +70,7 @@ class InterestModelManager(Module):
     @classmethod
     def _deserialize(cls, dict_, serializer, obj=None):
         if obj is None:
-            obs = cls(serializer.get('agent'), dict_.get('options', {}))
+            obj = cls(serializer.get('agent'), dict_.get('options', {}))
         return super()._deserialize(dict_, serializer, obj)
 
     def createInterestMap(self, model, strategy):
@@ -104,14 +104,14 @@ class InterestModelManager(Module):
             outcome = outcomes.projection(model.outcomeSpace)
             # print(f'OUTCOME {outcome}')
             contextColumns = model.contextColumns(None, outcome, context.projection(model.contextSpace))
-            # print(
-            #     f'action {action} actions {actions} model {model}')
             predictedOutcome = model.forward(action, context=context, contextColumns=contextColumns)[0]
             if predictedOutcome:
                 # print(f'{predictedOutcome} {outcome}')
                 # print(f'predicted {predictedOutcome.plain()} and got {outcome.plain()}')
-                distance = predictedOutcome.distanceTo(outcome) * 10. / outcome.space.maxDistance
-                # print(f'{distance}: {model}')
+                distance = min(predictedOutcome.distanceTo(outcome) / outcome.space.maxDistance, 1.)# * 10.
+                # print(f'INTEREST ERROR: {model} {distance}')
+                if distance > 0.2:
+                    print(f'!!!!! >> action {action} predictedOutcome {predictedOutcome} =? {outcome} distance {distance} model {model}')
 
                 if strategy not in model.interestMaps:
                     self.createInterestMap(model, strategy)
@@ -187,8 +187,10 @@ class InterestModelManager(Module):
         #     context=context, sampleContext=sampleContext)
         # goalContext = self.dataset.controlContext(goalContext, context)
     
-        goal, goalContext = region.separateContext(region.randomPoint(), controlContext)
+        goal, goalContext = region.separateContext(region.randomPoint(existingContext=True), controlContext)
+        # oldgc = goalContext
         goalContext = self.dataset.controlContext(goalContext, context)
+        # print(f'HHELELLELO {d} {oldgc} {goalContext}')
 
         return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
                           sampling="Random region, random goal")
@@ -200,7 +202,7 @@ class InterestModelManager(Module):
         if region is None:
             return self.sampleRandomPoint(strategiesAvailable=strategiesAvailable)
 
-        goal, goalContext = region.separateContext(region.randomPoint(), controlContext)
+        goal, goalContext = region.separateContext(region.randomPoint(existingContext=True), controlContext)
         goalContext = self.dataset.controlContext(goalContext, context)
 
         return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
@@ -238,6 +240,7 @@ class InterestModelManager(Module):
                 if not strategiesAvailable or strategy in strategiesAvailable:
                     for region in mp.regions:
                         if region.evaluation != 0.0:
+                            # print(f'{region.model}: {region.evaluation}')
                             regions.append(region)
 
         # Check if region context may be controlled
@@ -363,7 +366,7 @@ class InterestModelManager(Module):
 
 class InterestRegion(SpaceRegion):
     """Implements an interest region."""
-    BASE_INTEREST = 2.
+    BASE_INTEREST = 1.
 
     def __init__(self, space, options, bounds=None, parent=None, manager=None, model=None, strategy=None, contextSpace=None, regions=None, tag=None):
         super().__init__(space, options, bounds=bounds, parent=parent, manager=manager, tag='interest',
@@ -381,10 +384,10 @@ class InterestRegion(SpaceRegion):
 
     def computeEvaluation(self):
         """Compute evaluation of the region for given strategy."""
-        if len(self.pointValues) > self.options['window'] // 2:
+        if len(self.pointValues) > self.options['window']:
             self.progresses.append(self.meanProgress(self.pointValues))
-        if len(self.progresses) > self.options['window'] // 2:
-            self.evaluation = np.abs((self.progresses[-1] - self.progresses[-self.options['window'] // 2]) / self.options['cost'])
+        if len(self.progresses) > self.options['window']:
+            self.evaluation = np.abs((self.progresses[-1] - self.progresses[-self.options['window']]) / self.options['cost'])
         elif self.parent:
             self.evaluation = 0.
         else:
@@ -392,10 +395,11 @@ class InterestRegion(SpaceRegion):
 
     def meanProgress(self, pointValues):
         """Compute mean progress according to the evaluation window."""
-        pointValues = np.sort(pointValues[-self.options['window']//2:])
+        # pointValues = np.sort(pointValues[-self.options['window']//2:])
+        # pointValues = pointValues[-self.options['window']//2:]
         # if len(pointValues) > 5:
         #     pointValues = pointValues[1:-1]
-        return np.mean(pointValues)
+        return np.mean(pointValues[-self.options['window']:])
 
     # Sample
     def bestPoint(self, context=None, controlContext=True):
@@ -426,8 +430,8 @@ class InterestRegion(SpaceRegion):
         if aroundContext:
             point += vect
         else:
-            cols = self.space.columnsFor(self.targetSpace)
-            point[cols] += vect[cols]
+            cols = np.array(self.space.columnsFor(self.targetSpace))
+            point[~cols] += vect[~cols]
 
         # Check if the point is still in the evaluation region
         for i in range(len(point)):
@@ -435,14 +439,17 @@ class InterestRegion(SpaceRegion):
 
         return self.space.asTemplate(point)
 
-    def randomPoint(self):
+    def randomPoint(self, existingContext=False, noContextProbability=0.5):
         """Choose a random goal inside the region."""
-        d = Data(self.space,
-                 [random.uniform(bmin, bmax) for bmin, bmax in self.finiteBounds()])
-
-        return d
+        d = Data(self.space,[random.uniform(bmin, bmax) for bmin, bmax in self.finiteBounds()])
+        if random.uniform(0, 1) < noContextProbability:
+            return d.projection(self.targetSpace)
+        if not existingContext or self.number == 0:
+            return d
+        context = self.space.asTemplate(random.choice(self.points)).projection(self.contextSpace, kindSensitive=True)
+        return d.projection(self.targetSpace).extends(context)
     
     def separateContext(self, point, controlContext=True):
         if controlContext:
-            return point.projection(self.targetSpace), point.projection(self.contextSpace)
-        return point.projection(self.targetSpace), None
+            return point.projection(self.targetSpace).setRelative(True), point.projection(self.contextSpace, kindSensitive=True).setRelative(False)
+        return point.projection(self.targetSpace).setRelative(True), None

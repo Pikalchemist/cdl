@@ -15,7 +15,7 @@ class Mod(Serializable):
         self.agent = None
 
     def _serialize(self, serializer):
-        dict_ = serializer.serialize(self, ['prob'], exportPathType=True)
+        dict_ = serializer.serialize(self, ['prob'])
         return dict_
 
     # @classmethod

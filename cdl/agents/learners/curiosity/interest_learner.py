@@ -66,7 +66,7 @@ class InterestLearner(ModelLearner):
     def _serialize(self, serializer):
         dict_ = super()._serialize(serializer)
         dict_.update(serializer.serialize(
-            self, ['mods', 'adaptiveModels'], exportPathType=True))
+            self, ['mods', 'adaptiveModels']))
         return dict_
     
     def _postDeserialize(self, dict_, serializer):

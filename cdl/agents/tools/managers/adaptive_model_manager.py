@@ -73,7 +73,7 @@ class AdaptiveModelManager(Module):
         self.outcomeSpaces = set()
         for event in events:
             self.actionSpaces.update(set(event.actions.space.iterate()))
-            self.outcomeSpaces.update(set(event.outcomes.space.iterate()))
+            self.outcomeSpaces.update(set(event.onlyOutcomes.space.iterate()))
 
         self.logger.debug2(f'All spaces considered: {self.outcomeSpaces}')
 
@@ -86,8 +86,8 @@ class AdaptiveModelManager(Module):
         # filter by variation
         variatingSpaces = []
         for space in nonAlreadyExistingSpaces:
-            data = [(event, event.outcomes.projection(space)) for event in events
-                    if event.outcomes.projection(space).norm() > 1.]
+            data = [(event, event.onlyOutcomes.projection(space)) for event in events
+                    if event.onlyOutcomes.projection(space).norm() > 1.]
             if data:
                 variatingSpaces.append(space)  # (space, data))
 
