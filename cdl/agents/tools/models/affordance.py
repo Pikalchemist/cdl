@@ -239,14 +239,14 @@ class Affordance(InterestModel):
                 outcomeSpace = self.abstractOutcomeSpace.get(self.dataset)
                 contextSpace = self.abstractContextSpace.get(self.dataset)
 
-                self.actionSpace.allowedSimilarRows = [actionSpace]
-                self.outcomeSpace.allowedSimilarRows = [outcomeSpace]
-                self.contextSpace.allowedSimilarRows = [contextSpace]
+                self.actionSpace.allowSimilarRows([actionSpace])
+                self.outcomeSpace.allowSimilarRows([outcomeSpace])
+                self.contextSpace.allowSimilarRows([contextSpace])
             yield self
         finally:
-            self.actionSpace.allowedSimilarRows = []
-            self.outcomeSpace.allowedSimilarRows = []
-            self.contextSpace.allowedSimilarRows = []
+            self.actionSpace.resetSimilarRows()
+            self.outcomeSpace.resetSimilarRows()
+            self.contextSpace.resetSimilarRows()
     
     def forward(self, action, context=None, contextColumns=None, ignoreFirst=False, entity=None):
         if not entity:
