@@ -125,7 +125,7 @@ class Affordance(InterestModel):
 
     def compatibleEntity(self, entity):
         for required in self.requiredProperties():
-            if not entity.property(required.name()):
+            if not entity.propertyItem(required.name()):
                 return False
         return True
 
