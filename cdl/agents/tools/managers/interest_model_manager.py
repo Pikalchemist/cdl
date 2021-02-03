@@ -103,8 +103,8 @@ class InterestModelManager(Module):
                 action = outcomes.projection(model.actionSpace)
             outcome = outcomes.projection(model.outcomeSpace)
             # print(f'OUTCOME {outcome}')
-            contextColumns = model.contextColumns(None, outcome, context.projection(model.contextSpace))
-            predictedOutcome = model.forward(action, context=context, contextColumns=contextColumns)[0]
+            # contextColumns = model.contextColumns(None, action, context.projection(model.contextSpace))
+            predictedOutcome = model.forward(action, context=context)[0]
             if predictedOutcome:
                 # print(f'{predictedOutcome} {outcome}')
                 # print(f'predicted {predictedOutcome.plain()} and got {outcome.plain()}')
