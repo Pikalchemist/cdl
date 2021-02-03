@@ -35,16 +35,16 @@ class InterestLearner(ModelLearner):
     """Complete learning agent with an interest model and mods."""
     MODEL_CLASS = InterestModel
 
-    def __init__(self, environment, dataset=None, mods=[], performer=None, planner=None, options={}):
+    def __init__(self, host, dataset=None, mods=[], performer=None, planner=None, options={}):
         """
         dataset Dataset: dataset of the agent
         strat StrategyV4 list: list of learning strategies available to the agent
         mods Mod list: list of available mods (used to determine wich task/goal/strategy to explore
         interestModel InterestModelManager: interest model used by the agent to guide its learning process
-        env EnvironmentV4: environment of the experiment
+        env EnvironmentV4: host of the experiment
         """
         # options['dataset'] = dict(options.get('dataset', {}), **{'model':})
-        super().__init__(environment, dataset=dataset, performer=performer,
+        super().__init__(host, dataset=dataset, performer=performer,
                          planner=planner, options=options)
         self.interestModel = InterestModelManager(self)
         self.mods = []
