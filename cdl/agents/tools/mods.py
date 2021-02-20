@@ -35,7 +35,7 @@ class RandomMod(Mod):
     name = "Random"
 
     def sample(self, context=None):
-        return self.agent.interestModel.sampleRandomPoint(self.agent.trainStrategies)
+        return self.agent.interestModel.sampleRandomPoint(self.agent.trainStrategies, context=context)
 
 
 class GoodRegionMod(Mod):
@@ -59,4 +59,4 @@ class ActionMod(Mod):
     name = "Action Mod"
 
     def sample(self, context=None):
-        return self.agent.interestModel.sampleRandomAction(self.agent.trainStrategies)
+        return self.agent.interestModel.sampleRandomAction(self.agent.trainStrategies, context=context)

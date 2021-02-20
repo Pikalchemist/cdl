@@ -27,8 +27,8 @@ class AdaptiveModelManager(Module):
     EVALUATION_WINDOW = 6
 
     def __init__(self, learner):
-        super().__init__('AdaptiveModelManager')
-        self.logger.tag = 'adaptation'
+        super().__init__('AdaptiveModelManager', loggerTag='adaptation')
+
         self.learner = learner
         self.dataset = self.learner.dataset
 

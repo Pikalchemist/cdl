@@ -119,7 +119,7 @@ class InterestLearner(ModelLearner):
         self.logger.debug(f'Iteration {self.iteration}: {mod} chose {config}', tag='strategy')
         return config
 
-    def addEvent(self, event, config, cost=1.):
+    def _addEvent(self, event, config, cost=1.):
         self.interestModel.addEvent(event, config.strategy)
         if self.adaptiveModels:
             if not self.adaptiveModelManager:
