@@ -170,9 +170,9 @@ class InterestModelManager(Module):
         if region is None:
             return self.sampleRandomAction(strategiesAvailable=strategiesAvailable, context=context, noContextGoal=True)
 
-        goal, goalContext = region.sampleRandomPoint(context, changeContext)
+        goal, goalContext, changeContext = region.sampleRandomPoint(context, changeContext)
 
-        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
+        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext, changeContext=changeContext,
                           sampling="Random region, random goal")
 
     def sampleGoodPoint(self, strategiesAvailable=[], context=None):
@@ -181,10 +181,9 @@ class InterestModelManager(Module):
         if region is None:
             return self.sampleRandomAction(strategiesAvailable=strategiesAvailable, context=context, noContextGoal=True)
 
-        goal, goalContext = region.sampleGoodPoint(context, changeContext)
-        goalContext = self.dataset.controlContext(goalContext, context)
+        goal, goalContext, changeContext = region.sampleGoodPoint(context, changeContext)
 
-        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
+        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext, changeContext=changeContext,
                           sampling=f"best region in space {region.explorableSpace} with an interest of {region.evaluation:.4f}, random goal")
 
     def sampleBestPoint(self, strategiesAvailable=[], context=None):
@@ -193,10 +192,9 @@ class InterestModelManager(Module):
         if region is None:
             return self.sampleRandomAction(strategiesAvailable=strategiesAvailable, context=context, noContextGoal=True)
         
-        goal, goalContext = region.sampleBestPoint(context, changeContext)
-        goalContext = self.dataset.controlContext(goalContext, context)
+        goal, goalContext, changeContext = region.sampleBestPoint(context, changeContext)
 
-        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext,
+        return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext, changeContext=changeContext,
                           sampling=f"best region in space {region.explorableSpace} with an interest of {region.evaluation:.4f}, goal around best point")
 
     def chooseToChangeContext(self, bestChangedContext, bestCurrentContext):
@@ -365,23 +363,24 @@ class InterestRegion(SpaceRegion):
 
     # Sample
     def checkGoalContext(self, goal, goalContext, context, changeContext):
-        if not changeContext or self.number == 0:
-            goalContext = None
-        return goal.setRelative(True), self.dataset.controlContext(goalContext, context)
+        if self.number == 0:
+            changeContext = False
+        return goal.setRelative(True), self.dataset.controlContext(goalContext, context), changeContext
 
     def sampleRandomPoint(self, context=None, changeContext=True):
         """Choose a random goal inside the region."""
         goal = self.createRandomPoint()
-        goalContext = self.getGoalContext(self.findRandom())
+        goalContext = self.getGoalContext(self.findRandom(allowZeros=True))
 
         return self.checkGoalContext(goal, goalContext, context, changeContext)
     
     def sampleGoodPoint(self, context=None, changeContext=True):
         """Find point with the highest progress inside region."""
-        if not self.points:
-            print("Error: bestPoint should not be used for empty region.")
 
         point, changeContext = self.findBest(context, changeContext)
+        if point is None:
+            return self.sampleRandomPoint(context, changeContext)
+    
         aroundContext = random.uniform(0, 1) < self.SAMPLE_AROUND_CONTEXT
         goal, goalContext = self.pointContextAround(point, aroundContext=aroundContext)
 
@@ -389,10 +388,11 @@ class InterestRegion(SpaceRegion):
 
     def sampleBestPoint(self, context=None, changeContext=True):
         """Find point with the highest progress inside region."""
-        if not self.points:
-            print("Error: bestPoint should not be used for empty region.")
 
         point, changeContext = self.findBest(context, changeContext)
+        if point is None:
+            return self.sampleRandomPoint(context, changeContext)
+
         goalContext = self.getGoalContext(point)
 
         return self.checkGoalContext(point.position, goalContext, context, changeContext)
