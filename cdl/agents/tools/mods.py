@@ -6,16 +6,17 @@ class Mod(Serializable):
     """Implements the SGIM sampling mods."""
     name = "Random"
 
-    def __init__(self, prob):
+    def __init__(self, probability, changeContextProbability=None):
         """
         sample func: function called when sampling with this mod
         prob float: probability of this mod to occur
         """
-        self.prob = prob
         self.agent = None
+        self.probability = probability
+        self.changeContextProbability = changeContextProbability
 
     def _serialize(self, serializer):
-        dict_ = serializer.serialize(self, ['prob'])
+        dict_ = serializer.serialize(self, ['probability'])
         return dict_
 
     # @classmethod
@@ -24,39 +25,42 @@ class Mod(Serializable):
     #     obj = obj if obj else cls_(dict_.get('prob'))
     #     return obj
 
-    def sample(self, context=None):
+    def sampleMethod(self):
         raise Exception('Unimplemented')
+
+    def sample(self, context=None):
+        return self.sampleMethod()(self.agent.trainStrategies, context=context, changeContextProbability=self.changeContextProbability)
 
     def __repr__(self):
         return f"Mod {self.__class__.name}"
 
 
-class RandomMod(Mod):
-    name = "Random"
+class RandomGoalMod(Mod):
+    name = "Random Goal Point"
 
-    def sample(self, context=None):
-        return self.agent.interestModel.sampleRandomPoint(self.agent.trainStrategies, context=context)
+    def sampleMethod(self):
+        return self.agent.interestModel.sampleRandomGoal
 
 
-class GoodRegionMod(Mod):
+class GoodGoalMod(Mod):
     """Mod corresponding to SGIM Mod 1."""
-    name = "Good Region"
+    name = "Good Goal Point"
 
-    def sample(self, context=None):
-        return self.agent.interestModel.sampleGoodPoint(self.agent.trainStrategies, context=context)
+    def sampleMethod(self):
+        return self.agent.interestModel.sampleGoodGoal
 
 
-class GoodPointMod(Mod):
+class BestGoalMod(Mod):
     """Mod corresponding to SGIM Mod 2."""
-    name = "Good Point"
+    name = "Best Goal Point"
 
-    def sample(self, context=None):
-        return self.agent.interestModel.sampleBestPoint(self.agent.trainStrategies, context=context)
+    def sampleMethod(self):
+        return self.agent.interestModel.sampleBestGoal
 
 
-class ActionMod(Mod):
+class RandomActionMod(Mod):
     """Mod corresponding to random actions."""
-    name = "Action Mod"
+    name = "Random Action Point"
 
-    def sample(self, context=None):
-        return self.agent.interestModel.sampleRandomAction(self.agent.trainStrategies, context=context)
+    def sampleMethod(self):
+        return self.agent.interestModel.sampleRandomAction

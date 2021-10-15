@@ -98,7 +98,7 @@ class InterestLearner(ModelLearner):
 
     def sampleMod(self):
         """Choose mod stochastically."""
-        return self.mods[uniformSampling([m.prob for m in self.mods])]
+        return self.mods[uniformSampling([m.probability for m in self.mods])]
 
     def _preEpisode(self):
         # Choose learning strategy randomly
@@ -125,3 +125,6 @@ class InterestLearner(ModelLearner):
             if not self.adaptiveModelManager:
                 self.adaptiveModelManager = AdaptiveModelManager(self)
             self.adaptiveModelManager.addEvent(event)
+    
+    def _preProcessEvent(self, event, config, cost=1.):
+        self.interestModel.checkPredictionErrors(event, config.strategy)
