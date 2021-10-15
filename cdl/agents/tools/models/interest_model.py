@@ -1,4 +1,4 @@
-from dino.agents.tools.models.regression import RegressionModel
+from dinos.agents.tools.models.regression import RegressionModel
 
 
 class InterestModel(RegressionModel):

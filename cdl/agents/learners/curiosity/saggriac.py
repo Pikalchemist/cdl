@@ -3,8 +3,8 @@ from .interest_learner import InterestLearner
 
 class SAGGLearner(InterestLearner):
     def __init__(self, host, mods=[], dataset=None, options={}, performer=None, planner=None):
-        from dino.agents.tools.strategies.random import RandomStrategy
-        from dino.agents.tools.strategies.autonomous import AutonomousStrategy
+        from dinos.agents.tools.strategies.random import RandomStrategy
+        from dinos.agents.tools.strategies.autonomous import AutonomousStrategy
         from cdl.agents.tools.mods import RandomActionMod, RandomGoalMod, GoodGoalMod, BestGoalMod
 
         mods = [RandomActionMod(0.5, 0.3),

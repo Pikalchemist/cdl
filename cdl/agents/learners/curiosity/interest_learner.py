@@ -22,9 +22,9 @@
 # from ...maps.map import Map
 # from .mods import Mod
 
-from dino.agents.learners.model.model import ModelLearner
+from dinos.agents.learners.model.model import ModelLearner
 
-from dino.utils.maths import uniformSampling
+from dinos.utils.maths import uniformSampling
 
 from cdl.agents.tools.managers.interest_model_manager import InterestModelManager
 from cdl.agents.tools.managers.adaptive_model_manager import AdaptiveModelManager

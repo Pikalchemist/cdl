@@ -4,8 +4,8 @@ from enum import Enum, auto
 
 from exlab.modular.module import Module
 
-from dino.data.space import SpaceKind
-from dino.utils.maths import uniformRowSampling
+from dinos.data.space import SpaceKind
+from dinos.utils.maths import uniformRowSampling
 
 
 class ModelMutation(Enum):

@@ -14,8 +14,8 @@ from sklearn.neural_network import MLPClassifier
 
 from .interest_model import InterestModel
 
-from dino.data.abstract import AMT
-from dino.data.space import SpaceKind
+from dinos.data.abstract import AMT
+from dinos.data.space import SpaceKind
 
 
 class Affordance(InterestModel):

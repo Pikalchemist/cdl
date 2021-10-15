@@ -3,13 +3,13 @@ import pstats
 import cProfile
 from pstats import SortKey
 
-from dino.environments.playground import PlaygroundEnvironment
+from dinos.environments.playground import PlaygroundEnvironment
 from cdl.agents.learners.curiosity.saggriac import SAGGLearner
 from cdl.agents.tools.models.interest_model import InterestModel
 
 from exlab.interface.graph import display
-from dino.utils.move import MoveConfig
-from dino.agents.tools.planners.planner import Planning
+from dinos.utils.move import MoveConfig
+from dinos.agents.tools.planners.planner import Planning
 
 
 env = PlaygroundEnvironment()

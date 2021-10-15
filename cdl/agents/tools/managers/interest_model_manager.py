@@ -11,11 +11,11 @@ from exlab.modular.module import Module
 from exlab.utils.io import parameter
 from exlab.interface.graph import Graph
 
-from dino.data.data import Data
-from dino.data.region import SpaceRegion
+from dinos.data.data import Data
+from dinos.data.region import SpaceRegion
 
-from dino.utils.move import MoveConfig
-from dino.utils.maths import uniformRowSampling, mixedSort
+from dinos.utils.move import MoveConfig
+from dinos.utils.maths import uniformRowSampling, mixedSort
 
 # from collections import namedtuple
 
