@@ -9,6 +9,7 @@ import pickle
 
 from exlab.modular.module import Module
 from exlab.utils.io import parameter
+from exlab.interface.graph import Graph
 
 from dino.data.data import Data
 from dino.data.region import SpaceRegion
@@ -56,6 +57,8 @@ class InterestModelManager(Module):
         }
         self.options.update(options)
 
+        self.errors = []
+
         self.maps = []
         self.debutSampling = []
         self.spaces = []
@@ -82,29 +85,34 @@ class InterestModelManager(Module):
         model.interestMaps[strategy] = mp
         self.maps.append(mp)
         return mp
+    
+    def checkPredictionErrors(self, event, strategy):
+        context = parameter(event.context, Data())
+        models = self.dataset.findModelsByEvent(event)
+
+        for model in models:
+            action = model.findActionFromEvent(event)
+            outcome = event.outcomes.projection(model.outcomeSpace)
+            predictedOutcome, forwardError = model.forward(action, context=context)
+
+            if predictedOutcome and model.outcomeSpace.number > 100:
+                distance = min(predictedOutcome.distanceTo(outcome) / model.maxDistance(outcome), 1.)
+                if distance > 0.01:
+                    self.logger.info(f'HEYP {distance:.4f} for action {action} predictedOutcome {predictedOutcome} =? {outcome} model {model}')
+                    error = (distance, forwardError, action, predictedOutcome, outcome, model, context)
+                    self.errors.append(error)
 
     def addEvent(self, event, strategy):
-        actions = event.actions
         outcomes = event.outcomes
-        context = event.context if event.context else Data()
-        models = [model for model in self.dataset.enabledModels()
-                  if model.isCoveredByOutcomeSpaces(outcomes.space)
-                  and model.isCoveredByContextSpaces(context.space)
-                  and not np.all(outcomes.projection(model.outcomeSpace).npPlain() == 0)]
+        context = parameter(event.context, Data())
+        models = self.dataset.findModelsByEvent(event)
 
         # competences = [model.goalCompetence(outcomes, context) for model in models]
         self.dataset.addEvent(event)
 
         for model in models:
-            if model.isCoveredByActionSpaces(actions.space):
-                action = actions.projection(model.actionSpace)
-            elif model.isCoveredByActionSpaces(event.primitiveActions.space):
-                action = event.primitiveActions.projection(model.actionSpace)
-            else:
-                action = outcomes.projection(model.actionSpace)
+            action = model.findActionFromEvent(event)
             outcome = outcomes.projection(model.outcomeSpace)
-            # print(f'OUTCOME {outcome}')
-            # contextColumns = model.contextColumns(None, action, context.projection(model.contextSpace))
             predictedOutcome = model.forward(action, context=context)[0]
             closeIds = model.lastCloseIds
             if predictedOutcome and model.outcomeSpace.number > 15:
@@ -112,8 +120,8 @@ class InterestModelManager(Module):
                 # print(f'predicted {predictedOutcome.plain()} and got {outcome.plain()}')
                 distance = min(predictedOutcome.distanceTo(outcome) / model.maxDistance(outcome), 1.)# * 10.
                 # print(f'INTEREST ERROR: {model} {distance}')
-                if distance > 0.01:
-                    self.logger.info(f'ERROR {distance:.4f} for action {action} predictedOutcome {predictedOutcome} =? {outcome} model {model}')
+                # if distance > 0.01:
+                #     self.logger.info(f'ERROR {distance:.4f} for action {action} predictedOutcome {predictedOutcome} =? {outcome} model {model}')
 
                 if strategy not in model.interestMaps:
                     self.createInterestMap(model, strategy)
@@ -151,7 +159,7 @@ class InterestModelManager(Module):
         return [m for m in self.dataset.models if m.enabled and m.interestMaps]
 
     # Samples
-    def sampleRandomAction(self, strategiesAvailable=[], context=None, noContextGoal=False):
+    def sampleRandomAction(self, strategiesAvailable=[], context=None, changeContextProbability=None, noContextGoal=False):
         """Sample action."""
         if not strategiesAvailable:
             models = self.modelsWithInterestMaps()
@@ -159,14 +167,20 @@ class InterestModelManager(Module):
                 strategiesAvailable = set([strategy for model in models for strategy, _ in model.interestMaps.items()])
         strategy = random.choice(list(strategiesAvailable))
 
+        goalContext = None
         if not noContextGoal:
-            pass
+            if random.uniform(0, 1) < 0.5:
+                goalContext = self.sampleBestGoal(strategiesAvailable, context, changeContextProbability).goalContext
+            else:
+                goalContext = self.sampleRandomGoal(strategiesAvailable, context, changeContextProbability).goalContext
+            
 
-        return MoveConfig(strategy=strategy, sampling="random space, random action")
+        return MoveConfig(strategy=strategy, goalContext=goalContext,
+                          sampling="random space, random action")
 
-    def sampleRandomPoint(self, strategiesAvailable=None, context=None):
+    def sampleRandomGoal(self, strategiesAvailable=None, context=None, changeContextProbability=None):
         """Sample one point at random in the regions."""
-        region, changeContext = self.sampleRandomRegion(strategiesAvailable=strategiesAvailable, context=context)
+        region, changeContext = self.sampleRandomRegion(strategiesAvailable=strategiesAvailable, context=context, changeContextProbability=changeContextProbability)
         if region is None:
             return self.sampleRandomAction(strategiesAvailable=strategiesAvailable, context=context, noContextGoal=True)
 
@@ -175,9 +189,9 @@ class InterestModelManager(Module):
         return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext, changeContext=changeContext,
                           sampling="Random region, random goal")
 
-    def sampleGoodPoint(self, strategiesAvailable=[], context=None):
+    def sampleGoodGoal(self, strategiesAvailable=[], context=None, changeContextProbability=None):
         """Sample one point at random in one of the best regions."""
-        region, changeContext = self.sampleBestRegion(strategiesAvailable=strategiesAvailable, context=context)
+        region, changeContext = self.sampleBestRegion(strategiesAvailable=strategiesAvailable, context=context, changeContextProbability=changeContextProbability)
         if region is None:
             return self.sampleRandomAction(strategiesAvailable=strategiesAvailable, context=context, noContextGoal=True)
 
@@ -186,9 +200,9 @@ class InterestModelManager(Module):
         return MoveConfig(model=region.model, strategy=region.strategy, goal=goal, goalContext=goalContext, changeContext=changeContext,
                           sampling=f"best region in space {region.explorableSpace} with an interest of {region.evaluation:.4f}, random goal")
 
-    def sampleBestPoint(self, strategiesAvailable=[], context=None):
+    def sampleBestGoal(self, strategiesAvailable=[], context=None, changeContextProbability=None):
         """Sample one point around the best point in one of the best regions."""
-        region, changeContext = self.sampleBestRegion(strategiesAvailable=strategiesAvailable, context=context)
+        region, changeContext = self.sampleBestRegion(strategiesAvailable=strategiesAvailable, context=context, changeContextProbability=changeContextProbability)
         if region is None:
             return self.sampleRandomAction(strategiesAvailable=strategiesAvailable, context=context, noContextGoal=True)
         
@@ -204,16 +218,16 @@ class InterestModelManager(Module):
             return True
         return random.uniform(0, bestChangedContext + bestCurrentContext) < bestChangedContext
     
-    def changeContextDecision(self, contextProbability=0.5):
-        return random.uniform(0, 1) < contextProbability
+    def changeContextDecision(self, changeContextProbability=None):
+        return random.uniform(0, 1) < parameter(changeContextProbability, 0.5)
 
-    def sampleBestRegion(self, strategiesAvailable=[], context=None):
-        return self.sampleRegion(strategiesAvailable, context, best=True)
+    def sampleBestRegion(self, strategiesAvailable=[], context=None, changeContextProbability=None):
+        return self.sampleRegion(strategiesAvailable, context, changeContextProbability, best=True)
 
-    def sampleRandomRegion(self, strategiesAvailable=[], context=None):
-        return self.sampleRegion(strategiesAvailable, context, best=False)
+    def sampleRandomRegion(self, strategiesAvailable=[], context=None, changeContextProbability=None):
+        return self.sampleRegion(strategiesAvailable, context, changeContextProbability, best=False)
 
-    def sampleRegion(self, strategiesAvailable=[], context=None, best=False):
+    def sampleRegion(self, strategiesAvailable=[], context=None, changeContextProbability=None, best=False):
         # List all available regions
         regions = []
         for model in self.dataset.enabledModels():
@@ -255,7 +269,7 @@ class InterestModelManager(Module):
             # Pick a region with a uniform distribution with probabilities 'probs'
             return random.choices(regions, weights=[abs(region.evaluation) for region in regions])[0], changeContext
         else:
-            changeContext = self.changeContextDecision()
+            changeContext = self.changeContextDecision(changeContextProbability)
             regions = regionsChangedContext if changeContext else regionsCurrentContext
 
             if not regions:
@@ -263,78 +277,21 @@ class InterestModelManager(Module):
 
             return random.choice(regions), changeContext
     
-    # def _regionSamplingProbs(self, samples):
-    #     # Compute score for each region
-    #     probs = np.array([np.abs(sample.region.evaluation) for sample in samples])
+    def visualizeErrors(self, space, options={}):
+        title = 'Prediction Errors'
+        data = []
+        for error in self.errors:
+            distance, forwardError, action, predictedOutcome, outcome, model, context = error
+            if distance > 0.1 and model.outcomeSpace.matches(space):
+                position = context.projection(space)
+                data.append((position, predictedOutcome, distance))
 
-    #     # Sort region by score
-    #     ids = np.argsort(-probs)[:self.options['numberRegionSelection']]
-    #     probs = probs[ids]
-    #     samples = np.array(samples)[ids]
 
-    #     if len(probs) == 0 or probs[0] == 0.:
-    #         return None
+        values = [(d[0].plain(), d[1].plain()) for d in data]
+        g = Graph(title=f'{title} from {space}', options=options)
+        g.arrow(values, colorMap=[[0, 0, d[2]] for d in data])
 
-    #     # Pick a region with a uniform distribution with probabilities 'probs'
-    #     return uniformRowSampling(samples, probs)
-
-    # def sampleRandomRegion2(self):
-    #     """Choose one of the best regions and its most adapted strategy."""
-    #     irs = []
-    #     probs = []
-    #     #interests = []
-    #     for model in self.dataset.models:
-    #         for strategy, map in model.interestMaps.items():
-    #             for region in map.regions:
-    #                 if region.evaluation != 0.0:
-    #                     irs.append([model, strategy, region, region.evaluation])
-    #                     #interests.append(region.interest)
-    #                     probs.append(math.fabs(region.evaluation))  # Progresses are positive or negative
-    #                     #prob_sum += math.fabs(i.interest[strat])
-    #     #ids = range(len(probs))
-    #     #ids.sort(key= lambda i: probs[i])
-    #     probs = np.array(probs)
-    #     #n = max(0, len(probs)-self.options['nb_candidates'])
-    #     #ids = ids[n:len(ids)]
-    #     #probs = probs[ids]
-    #     #prob_sum = np.sum(probs)
-    #     #probs /= prob_sum
-    #     ids = list(range(len(probs)))
-    #     ids.sort(key=lambda i: -probs[i])
-    #     ids = ids[0:min(len(ids), self.options['numberRegionSelection'])]
-    #     if len(probs) > 0 and probs[ids[0]] > 0.0:
-    #         # At least one region is non-empty & could be chosen
-    #         #for p in probs:
-    #         #    p /= prob_sum
-    #         k = ids[uniformSampling(probs)]
-    #
-    #         #print probs[n], ir[n]
-    #         # Return result as ([model, strat, interest_region], max_interest)
-    #         return tuple(irs[k])
-    #     else:
-    #         # All regions are empty or could not be chosen
-    #         return None, None, None, 0.0
-
-    # def __deepcopy__(self, a):
-    #     newone = type(self).__new__(type(self))
-    #     # newone.__dict__.update(self.__dict__)
-    #     # newone.parent = None
-    #     # newone.modules = []
-    #     # newone.dataset = None
-    #     # newone.__dict__ = copy.deepcopy(newone.__dict__)
-    #     return newone
-
-    # # deprecated
-    # def plot_list_reg_v2(self, space, strat, ax, options):
-    #     """Plot the regions for the given model space and strategy (only for 1D or 2D model spaces)."""
-    #     it = self.space_to_interesttree(space)
-    #     norm = 0.0
-    #     for r in self.maps[it].regions:
-    #         for i in r.interest:
-    #             norm = max(-i, norm)
-    #     for r in self.maps[it].regions:
-    #         if not r.split:
-    #             r.plot_v2(strat, norm, ax, options)
+        return [g]
 
 
 class InterestRegion(SpaceRegion):
