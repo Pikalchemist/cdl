@@ -1,10 +1,10 @@
 # Curiosity Driven Learners
 
-This packages contains learner algorithms using artificial curiosity for the [Dinos framework](https://github.com/Pikalchemist/dinos).
+This package contains learner algorithms using artificial curiosity for the [Dinos framework](https://github.com/Pikalchemist/dinos).
 
 # Getting started
 
-First of all, install the package using pip:
+You can install the package using pip:
 
     pip install -e .
 
