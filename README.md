@@ -1,2 +1,11 @@
-# cdl
-Curiosity Driven Learners
+# Curiosity Driven Learners
+
+This packages contains learner algorithms using artificial curiosity for the [Dinos framework](https://github.com/Pikalchemist/dinos).
+
+# Getting started
+
+First of all, install the package using pip:
+
+    pip install -e .
+
+A base example of how to use CDL is provided in the `examples` folder from the git repository.
